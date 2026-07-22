@@ -1,0 +1,182 @@
+{
+  "slug": "turfly",
+  "thumbnail": "iHchcT84XQu4bwD9AuOiNIK8g",
+  "title": "Turfly - a voucher-based payment platform for the golf industry",
+  "meta_description": "A product design case study: end-to-end brand identity, design system, and admin dashboard for Turfly, a voucher-based caddy payment platform for the golf industry.",
+  "gated": false,
+  "next": "communication-saas",
+  "blocks": [
+    {
+      "type": "showreel",
+      "poster": "zCfLFZrIwmNaLtAZKFHiN9jEbYw",
+      "alt": "Turfly admin dashboard overview",
+      "ratio": "16 / 9",
+      "_video_todo": "Add motion: put files in site/assets/video/ and set \"video\": [\"turfly.webm\", \"turfly.mp4\"] (webm first, mp4 fallback)"
+    },
+    {
+      "type": "hero",
+      "title": "Turfly - **a voucher-based payment platform** for the golf industry",
+      "subtitle": "End-to-end brand identity, design system, and full web admin dashboard for a fintech startup solving the golf industry's informal caddy payment problem."
+    },
+    {
+      "type": "facts",
+      "items": [
+        {"label": "My Role", "value": "Primary Product Designer"},
+        {"label": "Deliverable", "value": "Brand + Design System + Full UI"},
+        {"label": "Tool", "value": "Figma"},
+        {"label": "Status", "value": "Live"},
+        {"label": "Platform", "value": "Web · Admin Dashboard"}
+      ]
+    },
+    {
+      "type": "stats",
+      "eyebrow": "Impact",
+      "items": [
+        {"value": "0 to 1", "desc": "Complete brand and product designed from a blank brief"},
+        {"value": "3+", "desc": "Distinct user types served in one connected system"},
+        {"value": "Full", "desc": "Design system and style guide delivered alongside every screen"}
+      ]
+    },
+    {
+      "type": "section",
+      "eyebrow": "The problem",
+      "title": "Caddies get paid in cash. There is no system for that.",
+      "body": [
+        "The golf industry has a long-standing informal payment problem. Caddies are typically paid in cash, with no reliable, trackable, or scalable payment system in place. For golfers, there is no easy way to pre-arrange or digitally record what they owe. For golf clubs and retailers, there is no visibility into caddy compensation at all.",
+        "Turfly was conceived to fix this. The platform creates a structured digital voucher economy within the golf ecosystem: golfers purchase and assign vouchers to their caddy, caddies redeem them at partnered golf clubs or retailers, and every transaction is tracked end-to-end with full visibility for admins."
+      ]
+    },
+    {
+      "type": "steps",
+      "eyebrow": "How it works",
+      "title": "A simple voucher loop. With serious infrastructure.",
+      "intro": null,
+      "_content_note": "Original body here was misplaced healthcare copy; omitted pending correct copy from Purvang.",
+      "items": [
+        {"step": "Step 01", "name": "Golfer", "desc": "Creates a voucher and assigns it to their caddy before or after a round"},
+        {"step": "Step 02", "name": "Caddy", "desc": "Receives the voucher, verifies it, and heads to a partnered golf club or retailer"},
+        {"step": "Step 03", "name": "Retailer", "desc": "Scans or enters the voucher code, processes the redemption, and pays out the caddy"},
+        {"step": "Step 04", "name": "Admin", "desc": "Monitors all users, vouchers, transactions, and platform health from a single dashboard"}
+      ]
+    },
+    {
+      "type": "section",
+      "eyebrow": "Brand identity",
+      "title": "Premium navy. Vibrant gradient. Built for trust.",
+      "body": [
+        "Golf is a premium, traditional industry. CaddyPay needed to feel like a fintech product that belonged in that world. Authoritative and modern, never generic. The brand was designed before a single product screen was touched."
+      ],
+      "media": {
+        "layout": "pair",
+        "images": [
+          {"img": "Mhy8oARGd1goIepA9sqf5ZaoWWM", "alt": "Turfly brand identity and design system exploration"},
+          {"img": "7grfr24B041JT5B4HJtwRTZsY", "alt": "Turfly brand system application"}
+        ]
+      }
+    },
+    {
+      "type": "section",
+      "eyebrow": "Authentication",
+      "title": "First impressions are part of the product",
+      "body": [
+        "The login and onboarding screens were designed with custom illustrations that establish the brand's premium tone before a user even sees the dashboard. Each auth state has its own illustrated moment, login, forgot password, email OTP verification, and set new password."
+      ],
+      "media": {
+        "layout": "grid",
+        "images": [
+          {"img": "tAoFVemx76et8Eip4rvHhD5rxU", "alt": "Turfly authentication screen illustration set"},
+          {"img": "oJVTqNhkhnmiDan07ZKxBcy9jM", "alt": "Turfly login and password recovery screens"},
+          {"img": "sPuKFJw6LzRogbv5mHSDQY4Rk", "alt": "Turfly OTP verification and password setup screens"}
+        ]
+      }
+    },
+    {
+      "type": "section",
+      "eyebrow": "Dashboard",
+      "title": "Everything an admin needs. Without clicking anywhere.",
+      "body": [
+        "The dashboard was designed around one principle: an admin should understand the health of the platform the moment they land. Four KPI cards surface total golfers, caddies, retailers, and voucher activity. A bar chart shows redemption trends over time. A US geographic heat map reveals where activity is concentrated. Recent transactions sit below for quick scanning."
+      ],
+      "media": {
+        "layout": "full",
+        "images": [
+          {"img": "zCfLFZrIwmNaLtAZKFHiN9jEbYw", "alt": "Turfly admin dashboard overview"}
+        ]
+      }
+    },
+    {
+      "type": "section",
+      "eyebrow": "User management",
+      "title": "Golfers, caddies, retailers. All managed in one place.",
+      "body": [
+        "Each user type has a dedicated management section with searchable, filterable, paginated tables and per-row quick actions. Profile detail pages show personal information, activity logs, and a full voucher history. Status changes, edits, and deactivations all follow consistent confirmation flows."
+      ],
+      "media": {
+        "layout": "grid",
+        "images": [
+          {"img": "yddPHywM3GXoSb7CS7kCEDrKiI", "alt": "Turfly searchable management table interface"},
+          {"img": "TRM9u7jrR7LY1dS00QR9JrgPV5g", "alt": "Turfly user profile and voucher history interface"},
+          {"img": "oPcIrCgrQG3qmoIcVCJihIpa4", "alt": "Turfly transaction management screen"}
+        ]
+      }
+    },
+    {
+      "type": "section",
+      "eyebrow": "Voucher management",
+      "title": "The most complex module. Every state of the money tracked.",
+      "body": [
+        "Vouchers are the core transaction unit of the platform. Each has a full lifecycle and every state needed to be immediately scannable at table level, actionable from a detail view, and trustworthy enough for a financial product."
+      ],
+      "chips": ["Active", "Claimed", "Expired", "Deactivated", "Redeemed"],
+      "media": {
+        "layout": "full",
+        "images": [
+          {"img": "0ql6q3LVmXuK4wOmMMiYhDks5EA", "alt": "Turfly redeemed voucher state screen"}
+        ]
+      }
+    },
+    {
+      "type": "section",
+      "eyebrow": "Edge states and error handling",
+      "nav": "Edge states",
+      "title": "How you handle errors is part of how users trust you",
+      "body": [
+        "A complete set of illustrated edge state screens was designed, each with its own on-brand illustration and a clear recovery action. In fintech, these moments matter as much as the core flows."
+      ],
+      "media": {
+        "layout": "grid",
+        "images": [
+          {"img": "fWz5ogMiPZIUAgNsOdMhx9xhvDg", "alt": "Turfly empty state illustration screen"},
+          {"img": "68PQmZYafQ2Ls8P54iMzk0KzvQ", "alt": "Turfly error state illustration screen"},
+          {"img": "lcZvfquvtTtxK3X84upzouUNHHs", "alt": "Turfly no results state illustration screen"},
+          {"img": "ok1aJEHHLjOAvfLAMSbJdMeRuU", "alt": "Turfly edge state screen set"}
+        ]
+      }
+    },
+    {
+      "type": "section",
+      "eyebrow": "Outcome",
+      "title": "A complete product, ready to ship",
+      "body": [
+        "The full brand identity, design system, and product UI were handed off to the development team, from authentication screens through to edge states and confirmation modals. Every flow in the voucher ecosystem is covered, every user type has a complete managed experience, and the design system ensures consistent implementation across every screen."
+      ]
+    },
+    {
+      "type": "testimonial",
+      "quote": "CaddyPay gave the golf industry its first structured digital payment system for caddies. Designed from scratch with a complete brand, design system, and production-ready UI.",
+      "attribution": "Project Summary, CaddyPay"
+    },
+    {
+      "type": "lessons",
+      "eyebrow": "Reflections",
+      "title": "What this project taught me",
+      "items": [
+        {"title": "In fintech, trust is a design requirement", "body": "Every screen that touches money needs to feel airtight. Status indicators, confirmation modals, and audit trails are not nice-to-haves. They are the product's credibility."},
+        {"title": "Brand and product design cannot be separated", "body": "Because I designed the brand and product together, every UI decision was grounded in the same visual language. The result is a product that feels designed, not assembled."},
+        {"title": "Edge states deserve as much care as core flows", "body": "In a fintech context, how you handle errors shapes how much users trust the product. Custom illustrated edge states were a deliberate investment, not an afterthought."},
+        {"title": "Multi-user platforms need a unified mental model", "body": "Golfers, caddies, and retailers all touch the same voucher from different angles. Designing the admin view of all three required a consistent data model that could surface any relationship to any transaction."},
+        {"title": "Dashboard density is a design decision", "body": "The temptation was to show everything. The decision was to show only what needs action. KPI cards, trend chart, geo map, recent transactions. Everything else is one click away."}
+      ]
+    }
+  ]
+}

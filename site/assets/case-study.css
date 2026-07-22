@@ -1,0 +1,339 @@
+/* ============================================================
+   CASE STUDY TEMPLATE  — token-driven, framer-independent.
+   Every value references a design-system token (design-system.css).
+   Loaded only on content-driven case-study pages.
+   Structure: main.cs > (hero | facts | overview | blocks | closing)
+   ============================================================ */
+
+main.cs{
+  --cs-max: var(--ds-container);           /* 1200 content column   */
+  --cs-measure: var(--ds-measure);         /* readable text width    */
+  /* SPACING RULE (single source of truth — don't hardcode section padding):
+     --cs-section-y : vertical breathing room for a standard content section
+     --cs-band-y    : vertical padding inside a full-bleed band (hero/outro)  */
+  --cs-section-y: var(--ds-space-16);      /* 64px */
+  --cs-band-y: clamp(72px, 9vw, 120px);
+  display:block;
+  padding:0 var(--ds-space-6);
+  color:var(--ds-ink);
+  background:var(--ds-paper);              /* all case-study content on white  */
+}
+main.cs > *{margin-left:auto;margin-right:auto}
+@media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
+
+/* text hygiene: no awkward line breaks, no orphans, no mid-word breaks */
+.cs-title,.cs-h2,.cs-closing-title,.cs-quote blockquote,
+.cs-card-title,.cs-step-name,.cs-lesson-title,.cs-stat-value{text-wrap:balance}
+.cs-body p,.cs-sub,.cs-card-desc,.cs-step-desc,.cs-lesson-body,
+.cs-stat-desc,.cs-ov-value{text-wrap:pretty;overflow-wrap:break-word;hyphens:none}
+
+/* ---- page layout: sticky section nav (scroll-spy) + main --- */
+.cs-layout{max-width:var(--cs-max);display:grid;
+  grid-template-columns:var(--cs-toc-w,180px) minmax(0,1fr);
+  gap:clamp(36px,5vw,72px);align-items:start}
+.cs-main{min-width:0}
+.cs-toc{position:sticky;top:112px;align-self:start}
+/* breadcrumb 'Home' at the top of the sidebar, divider, then the section list */
+.cs-toc-home{display:flex;align-items:center;gap:var(--ds-space-2);min-height:40px;
+  padding-bottom:var(--ds-space-5,20px);margin-bottom:var(--ds-space-5,20px);
+  border-bottom:1px solid var(--ds-border);
+  color:var(--ds-ink-soft);font:500 var(--ds-text-sm)/1 var(--ds-font-sans);
+  text-decoration:none;transition:color var(--ds-dur-fast) var(--ds-ease)}
+.cs-toc-home:hover{color:var(--ds-accent)}
+.cs-toc-home svg{transition:transform var(--ds-dur-fast) var(--ds-ease)}
+.cs-toc-home:hover svg{transform:translateX(-3px)}
+.cs-toc ul{list-style:none;margin:0;padding:0;border-left:1px solid var(--ds-border)}
+.cs-toc a:not(.cs-toc-home){display:block;margin-left:-1px;
+  padding:var(--ds-space-3) 0 var(--ds-space-3) var(--ds-space-5,20px);
+  border-left:2px solid transparent;color:var(--ds-ink-soft);
+  font:500 var(--ds-text-sm)/1.35 var(--ds-font-sans);text-decoration:none;
+  transition:color var(--ds-dur-fast) var(--ds-ease),border-color var(--ds-dur-fast) var(--ds-ease)}
+.cs-toc a:not(.cs-toc-home):hover{color:var(--ds-ink)}
+.cs-toc a.is-active{color:var(--ds-accent);border-left-color:var(--ds-accent)}
+.cs-sec{scroll-margin-top:112px}
+/* hairline between major sections for clear structure while scanning */
+.cs-main > .cs-sec + .cs-sec{border-top:1px solid var(--ds-border)}
+/* first section sits under the facts row: balanced gap around the hairline */
+.cs-facts + .cs-sec > .cs-block,
+.cs-facts + .cs-sec > .cs-overview,
+.cs-facts + .cs-sec > .cs-stats{padding-top:var(--ds-space-16)}
+@media (max-width:899.98px){
+  .cs-layout{grid-template-columns:1fr;gap:0}
+  .cs-toc{display:none}
+}
+
+/* ---- hero (title + lede; full-width, below the motion banner) ---- */
+.cs-hero{max-width:var(--cs-max);padding:var(--ds-space-12) 0 var(--ds-space-20)}
+/* hero title fills the full max-width; balance keeps lines even */
+.cs-title{margin:0;max-width:none;color:var(--ds-ink);
+  font-family:var(--ds-font-display);font-weight:400;
+  font-size:var(--ds-display-1);line-height:var(--ds-display-lead);letter-spacing:var(--ds-display-track)}
+.cs-accent{color:var(--ds-accent)}
+.cs-sub{max-width:72ch;margin:var(--ds-space-6) 0 0;
+  font:400 var(--ds-text-lg)/var(--ds-leading-lg) var(--ds-font-sans);color:var(--ds-ink-soft)}
+
+/* hero entrance: staggered rise on load. CSS-only, the end state IS the natural
+   visible state, so nothing is gated if animation is unsupported; reduced-motion
+   opts out entirely. */
+@media (prefers-reduced-motion:no-preference){
+  .cs-hero .cs-title{animation:cs-rise .8s var(--ds-ease) .06s both}
+  .cs-hero .cs-sub{animation:cs-rise .8s var(--ds-ease) .16s both}
+  .cs-facts{animation:cs-rise .8s var(--ds-ease) .24s both}
+}
+@keyframes cs-rise{from{opacity:0;transform:translateY(22px)}to{opacity:1;transform:none}}
+
+/* ---- content block ---------------------------------------- */
+/* Two section modes:
+   .cs-block--split  = reading section: label rail (left) + body (right),
+                        media breaks out full-width below. Mirrors About.
+   .cs-block         = showcase section: full-width header + grid below.       */
+section.cs-block{max-width:var(--cs-max);padding-block:var(--cs-section-y)}
+
+/* reading section: single column. The sidebar already carries the section
+   titles, so we don't repeat them in a rail. Title sits above a wide,
+   readability-capped body; media breaks out full width below. */
+.cs-block--split{display:block}
+.cs-head{min-width:0}
+.cs-content{min-width:0;margin-top:var(--ds-space-6)}
+.cs-content > .cs-body{margin-top:0}
+.cs-block--split > .cs-media{max-width:none;margin-top:var(--ds-space-10)}
+
+.cs-eyebrow{margin:0 0 var(--ds-space-4);color:var(--ds-accent);
+  font:600 var(--ds-text-xs)/1 var(--ds-font-sans);letter-spacing:.14em;text-transform:uppercase}
+.cs-h2{margin:0;max-width:28ch;color:var(--ds-ink);
+  font-family:var(--ds-font-display);font-weight:400;
+  font-size:var(--ds-title-2);line-height:1.08;letter-spacing:var(--ds-display-track)}
+.cs-block:not(.cs-block--split) > .cs-h2{max-width:30ch}
+
+/* body fills the content column to the same right endpoint as the other
+   blocks (overview/cards); no narrow cap */
+.cs-body{max-width:none;margin:var(--ds-space-6) 0 0;
+  display:flex;flex-direction:column;gap:var(--ds-space-5,20px)}
+.cs-body p{margin:0;font:400 var(--ds-text-read)/1.75 var(--ds-font-sans);color:var(--ds-ink-soft)}
+/* in-body sub-heads: a clear tier between title and paragraph, with generous
+   space above so long sections break into scannable chunks.
+   Selector must out-specify `.cs-body p` or it inherits body styling. */
+.cs-body p.cs-body-h{margin:var(--ds-space-6) 0 calc(-1 * var(--ds-space-1));color:var(--ds-ink);
+  font:600 var(--ds-text-lg)/1.3 var(--ds-font-sans);letter-spacing:-.005em}
+.cs-body p.cs-body-h:first-child{margin-top:0}
+
+/* numbered problem: real sequence, so the number is a structural anchor */
+.cs-num{display:block;margin-bottom:var(--ds-space-3);
+  font-family:var(--ds-font-display);font-size:clamp(48px,5vw,72px);line-height:.9;
+  color:var(--ds-gray-300)}
+.cs-block--numbered{padding-top:var(--ds-space-16)}
+
+/* ---- facts (compact meta row) ----------------------------- */
+/* facts sit at the top of the content column, aligned with the sidebar 'Home';
+   bottom hairline separates them from the first section */
+.cs-facts{max-width:var(--cs-max);padding:0 0 var(--ds-space-16);
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr));
+  gap:var(--ds-space-10) clamp(28px,3vw,52px);
+  border-bottom:1px solid var(--ds-border)}
+.cs-fact-label{margin:0 0 var(--ds-space-3);color:var(--ds-ink-soft);
+  font:600 11px/1 var(--ds-font-sans);letter-spacing:.12em;text-transform:uppercase}
+.cs-fact-value{margin:0;font:500 var(--ds-text-base)/1.35 var(--ds-font-sans);color:var(--ds-ink)}
+
+/* ---- overview (detailed labelled facts) ------------------- */
+.cs-overview{max-width:var(--cs-max);padding-block:var(--cs-section-y)}
+.cs-ov-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(240px,100%),1fr));gap:var(--ds-space-8) var(--ds-space-10)}
+.cs-ov-label{margin:0 0 var(--ds-space-2);color:var(--ds-accent);
+  font:600 11px/1 var(--ds-font-sans);letter-spacing:.12em;text-transform:uppercase}
+.cs-ov-value{margin:0;font:400 var(--ds-text-base)/1.55 var(--ds-font-sans);color:var(--ds-ink-soft)}
+
+/* ---- stats (big numbers) ---------------------------------- */
+.cs-stats{max-width:var(--cs-max);padding-block:var(--cs-section-y)}
+.cs-stats-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(220px,100%),1fr));
+  gap:var(--ds-space-10) clamp(28px,3vw,52px);margin-top:var(--ds-space-6)}
+.cs-stat-value{margin:0;font-family:var(--ds-font-display);font-size:var(--ds-display-2);
+  line-height:1;letter-spacing:var(--ds-display-track);color:var(--ds-ink)}
+.cs-stat-desc{margin:var(--ds-space-4) 0 0;max-width:34ch;
+  font:400 var(--ds-text-base)/1.55 var(--ds-font-sans);color:var(--ds-ink-soft)}
+
+/* ---- steps (actor loop) ----------------------------------- */
+.cs-steps-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(220px,100%),1fr));
+  gap:var(--ds-space-4);margin-top:var(--ds-space-8)}
+.cs-step{padding:var(--ds-space-6);border:1px solid var(--ds-border);
+  border-radius:var(--ds-radius-lg);background:var(--ds-surface)}
+.cs-step-n{margin:0 0 var(--ds-space-3);color:var(--ds-accent);
+  font:600 var(--ds-text-xs)/1 var(--ds-font-sans);letter-spacing:.08em;text-transform:uppercase}
+.cs-step-name{margin:0 0 var(--ds-space-2);font:600 var(--ds-text-xl)/1.2 var(--ds-font-sans);color:var(--ds-ink)}
+.cs-step-desc{margin:0;font:400 var(--ds-text-base)/1.55 var(--ds-font-sans);color:var(--ds-ink-soft)}
+
+/* ---- cards (stakeholders / validation / metrics) ---------- */
+.cs-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(280px,100%),1fr));
+  gap:var(--ds-space-4);margin-top:var(--ds-space-8)}
+.cs-card{padding:var(--ds-space-6);border:1px solid var(--ds-border);
+  border-radius:var(--ds-radius-lg);background:var(--ds-surface)}
+.cs-card-kicker{margin:0 0 var(--ds-space-3);color:var(--ds-accent);
+  font:600 var(--ds-text-xs)/1 var(--ds-font-sans);letter-spacing:.08em;text-transform:uppercase}
+.cs-card-title{margin:0 0 var(--ds-space-2);font:600 var(--ds-text-lg)/1.25 var(--ds-font-sans);color:var(--ds-ink)}
+.cs-card-desc{margin:0;font:400 var(--ds-text-base)/1.55 var(--ds-font-sans);color:var(--ds-ink-soft)}
+
+/* ---- chips (states) --------------------------------------- */
+.cs-chips{display:flex;flex-wrap:wrap;gap:var(--ds-space-2);margin-top:var(--ds-space-6)}
+.cs-chip{padding:9px 15px;border-radius:var(--ds-radius-pill);
+  background:var(--ds-surface-raised);border:1px solid var(--ds-border);
+  color:var(--ds-ink);font:500 var(--ds-text-sm)/1 var(--ds-font-sans)}
+
+/* ---- showreel: full-bleed motion banner at the very top ---- */
+/* Spans the full viewport width and starts at y=0; the fixed nav floats over
+   it. Height is capped so the title below stays visible. The `main.cs > .cs-reel`
+   selector out-specifies the `main.cs > * {margin:auto}` centering rule. */
+main.cs > .cs-reel{margin-left:calc(50% - 50vw);margin-right:calc(50% - 50vw)}
+.cs-reel{width:100vw;max-width:none;margin-top:0;
+  height:clamp(360px,64vh,660px);overflow:hidden;background:var(--ds-surface-raised)}
+.cs-reel-fig{margin:0;min-width:0;height:100%}
+.cs-reel-video,.cs-reel-video--img{display:block;width:100%;height:100%;
+  object-fit:cover;object-position:center}
+.cs-reel-placeholder{display:flex;align-items:center;justify-content:center;
+  width:100%;height:100%;background:var(--ds-surface);
+  color:var(--ds-ink-soft);font:500 var(--ds-text-md)/1 var(--ds-font-sans)}
+.cs-reel .cs-caption{max-width:var(--cs-max);margin:var(--ds-space-4) auto 0;padding:0 var(--ds-space-6)}
+
+/* ---- media: strict, count-driven image grid --------------------------------
+   No container, no panel, no padding around images. Each image is just an image
+   with rounded corners. The layout is decided ONLY by how many images there are:
+     1 = full width · 2 = two-up · 3 = three-up · 4 = 2x2 · 5+ = three-up, wraps.
+   Consistent gap between images; stacks to a single column on mobile.        */
+.cs-media{margin-top:var(--ds-space-8)}
+.cs-media--1{display:grid;grid-template-columns:1fr;gap:var(--ds-space-4)}
+.cs-media--2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--ds-space-4)}
+/* 3+ images: horizontal scroller. Every image holds a fixed, readable height
+   (uniform row, natural widths); pagination dots signal + drive the scroll. */
+.cs-scroll-track{display:flex;gap:var(--ds-space-4);overflow-x:auto;
+  scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;
+  overscroll-behavior-x:contain;scrollbar-width:none}
+.cs-scroll-track::-webkit-scrollbar{display:none}
+.cs-scroll-track > .cs-fig{flex:0 0 auto;scroll-snap-align:start}
+.cs-scroll-track .cs-fig img{height:clamp(300px,30vw,420px);width:auto;max-width:none}
+/* pagination dots: active is a wider accent pill */
+.cs-scroll-dots{display:flex;justify-content:center;align-items:center;
+  gap:var(--ds-space-2);margin-top:var(--ds-space-5,20px)}
+.cs-media-dot{width:8px;height:8px;padding:0;border:0;cursor:pointer;
+  border-radius:var(--ds-radius-pill);background:var(--ds-gray-300,rgba(0,0,0,.16));
+  transition:width var(--ds-dur-fast) var(--ds-ease),background var(--ds-dur-fast) var(--ds-ease)}
+.cs-media-dot:hover{background:var(--ds-gray-600,rgba(0,0,0,.35))}
+.cs-media-dot.is-active{width:24px;background:var(--ds-accent)}
+.cs-fig{margin:0;min-width:0}
+/* every image: rounded corners + a 1px hairline to define the edge, nothing else */
+.cs-fig img{display:block;width:100%;height:auto;border-radius:var(--ds-radius-lg);
+  border:1px solid rgba(0,0,0,.07)}
+/* ink-soft (#4d4d4d), not gray-600 (#666): captions are small text and must
+   clear WCAG AA 4.5:1 on both white and the grey band. */
+.cs-caption{margin:var(--ds-space-3) 0 0;color:var(--ds-ink-soft);
+  font:400 var(--ds-text-sm)/1.4 var(--ds-font-sans)}
+/* a single portrait image shouldn't stretch to full width */
+.cs-media--1 .cs-fig--portrait{max-width:520px;margin-inline:auto}
+@media (max-width:767.98px){.cs-media--2{grid-template-columns:1fr}}
+
+/* ---- testimonial ------------------------------------------ */
+.cs-quote{max-width:var(--cs-max);padding-block:var(--cs-section-y)}
+.cs-quote blockquote{margin:0;max-width:24ch;color:var(--ds-ink);
+  font-family:var(--ds-font-display);font-weight:400;
+  font-size:var(--ds-display-2);line-height:1.32;letter-spacing:var(--ds-display-track)}
+.cs-quote-attr{margin:var(--ds-space-5,20px) 0 0;color:var(--ds-ink-soft);
+  font:500 var(--ds-text-sm)/1 var(--ds-font-sans)}
+
+/* ---- lessons ---------------------------------------------- */
+.cs-lessons-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(300px,100%),1fr));
+  gap:var(--ds-space-8) var(--ds-space-10);margin-top:var(--ds-space-8)}
+.cs-lesson-title{margin:0 0 var(--ds-space-3);font:600 var(--ds-text-lg)/1.3 var(--ds-font-sans);color:var(--ds-ink)}
+.cs-lesson-body{margin:0;font:400 var(--ds-text-base)/1.6 var(--ds-font-sans);color:var(--ds-ink-soft)}
+
+/* ---- closing CTA: contained, on the white body (navy card) --------------- */
+.cs-closing{max-width:var(--cs-max);margin-top:var(--ds-space-16)}
+.cs-closing-inner{max-width:none}
+/* narrower fixed illustration panel + premium deep-navy CTA panel */
+.cs-closing-card{--cs-cta-bg:#0e1a3d;display:grid;grid-template-columns:clamp(260px,31%,380px) minmax(0,1fr);
+  border-radius:var(--ds-radius-xl);overflow:hidden;background:var(--cs-cta-bg);
+  min-height:clamp(240px,24vw,340px)}
+.cs-closing-art{position:relative;background:var(--cs-cta-bg)}
+.cs-closing-media{width:100%;height:100%;object-fit:cover;object-position:center;display:block}
+.cs-closing-panel{display:flex;flex-direction:column;justify-content:center;
+  background:var(--cs-cta-bg);color:#fff;padding:clamp(28px,3vw,44px)}
+.cs-closing-kicker{margin:0 0 var(--ds-space-5,20px);color:rgba(255,255,255,.72);
+  font:500 var(--ds-text-base)/1.45 var(--ds-font-sans)}
+/* fills the panel width; no forced narrow wrapping / balanced short lines */
+.cs-closing-title{margin:0;max-width:none;text-wrap:pretty;color:#fff;
+  font-family:var(--ds-font-display);font-weight:400;
+  font-size:clamp(28px,3.2vw,44px);line-height:1.12;letter-spacing:var(--ds-display-track)}
+.cs-closing-dim{color:rgba(255,255,255,.55)}
+.cs-closing-actions{display:flex;align-items:center;justify-content:space-between;
+  gap:var(--ds-space-5,20px);flex-wrap:wrap;margin-top:var(--ds-space-8)}
+/* the CTA uses the design-system button (.ds-btn--secondary); the panel var
+   just keeps it readable on the dark surface */
+.cs-cta{border-color:transparent}
+/* social icons: circular, sized to the CTA button height, accent on hover */
+.cs-closing-socials{display:flex;align-items:center;gap:var(--ds-space-2);flex-wrap:wrap}
+.cs-soc{width:36px;height:36px;flex:none;border-radius:var(--ds-radius-pill);background:#fff;
+  display:inline-flex;align-items:center;justify-content:center;text-decoration:none;
+  transition:transform .18s var(--ds-ease),background .18s var(--ds-ease)}
+.cs-soc svg{width:15px;height:15px;fill:var(--cs-cta-bg);transition:fill .18s var(--ds-ease)}
+.cs-soc:hover{transform:translateY(-2px);background:var(--ds-accent)}
+.cs-soc:hover svg{fill:#fff}
+/* ---- 'Ready for next?' — full-bleed GREY band with the two project covers */
+main.cs > .cs-more{width:100vw;margin-left:calc(50% - 50vw)}
+.cs-more{margin-top:var(--ds-space-16);background:var(--ds-surface);
+  padding:var(--cs-band-y) var(--ds-space-6)}
+.cs-more-inner{max-width:var(--cs-max);margin:0 auto}
+.cs-more-title{margin:0 0 var(--ds-space-8);color:var(--ds-ink);
+  font-family:var(--ds-font-display);font-weight:400;font-size:var(--ds-title-2);
+  line-height:1.1;letter-spacing:var(--ds-display-track)}
+.cs-more-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--ds-space-8)}
+.cs-more-card{display:block;text-decoration:none;color:inherit}
+.cs-more-thumb{display:block;overflow:hidden;aspect-ratio:4/3;background:var(--ds-surface);
+  border-radius:var(--ds-radius-lg);border:1px solid rgba(0,0,0,.07)}
+.cs-more-thumb img{width:100%;height:100%;object-fit:cover;display:block;
+  transition:transform .45s var(--ds-ease)}
+.cs-more-card:hover .cs-more-thumb img{transform:scale(1.03)}
+.cs-more-foot{display:flex;align-items:center;justify-content:space-between;
+  gap:var(--ds-space-3);margin-top:var(--ds-space-5,20px)}
+.cs-more-name{font:600 var(--ds-text-md)/1.3 var(--ds-font-sans);color:var(--ds-ink)}
+.cs-more-arrow{flex:none;color:var(--ds-ink-soft);
+  transition:transform var(--ds-dur-fast) var(--ds-ease),color var(--ds-dur-fast) var(--ds-ease)}
+.cs-more-card:hover .cs-more-name{color:var(--ds-accent)}
+.cs-more-card:hover .cs-more-arrow{color:var(--ds-accent);transform:translateX(3px)}
+
+/* ---- NDA gate --------------------------------------------- */
+.cs-gate{position:fixed;inset:0;z-index:2000;display:flex;align-items:center;justify-content:center;
+  padding:var(--ds-space-6);background:var(--ds-surface)}
+.cs-gate-card{width:100%;max-width:420px;padding:var(--ds-space-8);
+  background:var(--ds-paper);border:1px solid var(--ds-border);
+  border-radius:var(--ds-radius-xl);box-shadow:var(--ds-shadow-lg)}
+.cs-gate-title{margin:0 0 var(--ds-space-2);color:var(--ds-ink);
+  font-family:var(--ds-font-display);font-weight:400;font-size:var(--ds-text-xl)}
+.cs-gate-sub{margin:0 0 var(--ds-space-5,20px);font:400 var(--ds-text-base)/1.5 var(--ds-font-sans);color:var(--ds-ink-soft)}
+.cs-gate-sub a{color:var(--ds-accent)}
+.cs-gate-input{width:100%;box-sizing:border-box;padding:14px 16px;margin-bottom:var(--ds-space-3);
+  border:1px solid var(--ds-border);border-radius:var(--ds-radius-md);
+  font:400 var(--ds-text-md)/1 var(--ds-font-sans);color:var(--ds-ink)}
+.cs-gate-input:focus{outline:2px solid var(--ds-accent);outline-offset:0;border-color:var(--ds-accent)}
+.cs-gate-btn{width:100%;justify-content:center}
+.cs-gate-err{margin:var(--ds-space-3) 0 0;color:var(--ds-negative);font:500 var(--ds-text-sm)/1 var(--ds-font-sans)}
+
+/* ---- mobile ----------------------------------------------- */
+@media (max-width:767.98px){
+  main.cs{padding:0 var(--pm-mobile-gutter,24px);--cs-section-y:var(--ds-space-12)}
+  .cs-hero{padding-top:var(--ds-space-10)}
+  .cs-block--split > .cs-content{margin-top:var(--ds-space-5,20px)}
+  .cs-block--split > .cs-media{margin-top:var(--ds-space-6)}
+  .cs-block--numbered{padding-top:var(--ds-space-10)}
+  .cs-closing-card{grid-template-columns:1fr;min-height:0}
+  .cs-closing-art{min-height:200px}
+  .cs-closing-actions{margin-top:var(--ds-space-8)}
+  .cs-more-grid{grid-template-columns:1fr}
+}
+
+/* ---- scroll reveal (progressive enhancement) --------------- */
+/* Only elements JS has marked (below the fold at load) are hidden; the
+   default state is visible, so no-JS and reduced-motion users see everything. */
+.cs-reveal{opacity:0;transform:translateY(12px);
+  transition:opacity .55s var(--ds-ease),transform .55s var(--ds-ease)}
+.cs-reveal.is-in{opacity:1;transform:none}
+
+/* respect reduced motion (global :focus-visible + ::selection come from design-system.css) */
+@media (prefers-reduced-motion:reduce){
+  .cs-toc-home svg,.cs-more-thumb img{transition:none}
+  .cs-reveal{opacity:1;transform:none;transition:none}
+}

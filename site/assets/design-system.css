@@ -1,0 +1,807 @@
+
+/* ============================================================
+   PURVANG MEHTA — DESIGN SYSTEM  (v2.0 — "minimal")
+   Reference: muhid.de-style minimalism.
+   Two fonts (Gilroy, DM Sans), one blue, white surfaces,
+   hairline borders instead of shadows, tight display tracking.
+   This file is the single source of truth AND the reskin layer:
+   section 3 re-themes the existing Framer markup via its
+   preset classes — content and markup untouched.
+
+   SECTION MAP (home, top to bottom):
+   #pm-hero-wrap        hero card + client-logo ticker   (build-time wrap)
+   #projects            Selected Projects                (Framer "Latest Projects")
+   #explorations        Visual explorations marquee      (.pm-gal, runtime id)
+   #about-me            About v2                         (.pm-about, runtime build)
+   #testimonials        What clients say marquee         (.pm-gal.pm-testi, runtime id)
+   footer               contact / legal / PURVANG fit-text
+   Retired (display:none): Timeline/Work History, Schedule Call.
+   ============================================================ */
+
+:root{
+  /* ---- color ---- */
+  --ds-ink:            rgb(25, 25, 25);     /* primary text — soft black    */
+  --ds-ink-soft:       rgb(77, 77, 77);     /* display charcoal (hero name) */
+  --ds-positive:       rgb(76, 217, 175);   /* availability / success dot   */
+  --ds-negative:       rgb(192, 54, 44);    /* error / destructive text     */
+  --ds-paper:          rgb(255, 255, 255);
+  --ds-gray-700:       rgb(31, 31, 31);     /* dark surfaces                */
+  --ds-gray-600:       rgb(102, 102, 102);  /* secondary text               */
+  --ds-gray-400:       rgb(140, 140, 140);  /* muted, ghost headings        */
+  --ds-gray-300:       rgb(185, 185, 185);
+  --ds-border:         rgba(0, 0, 0, .10);  /* hairlines                    */
+  --ds-surface:        rgb(245, 245, 245);  /* page background (uxdayshankar gray) */
+  --ds-surface-raised: rgb(245, 245, 245);  /* nav bar, subtle chips        */
+
+  --ds-accent:         rgb(28, 53, 236);    /* primary blue                 */
+  --ds-accent-600:     rgb(21, 41, 190);    /* hover / pressed              */
+  --ds-accent-200:     rgb(196, 205, 250);  /* soft fills, focus rings      */
+  --ds-accent-100:     rgb(224, 229, 252);  /* subtle fills                 */
+  --ds-accent-50:      rgb(244, 246, 254);  /* tinted section backgrounds   */
+  --ds-accent-alt:     rgb(28, 53, 236);    /* unified: one blue everywhere */
+  --ds-accent-on-dark: rgb(80, 101, 255);   /* brand blue lifted for dark bg (AA 4.65:1 on black) */
+  --ds-link:           rgb(28, 53, 236);
+
+  /* illustration palette: CONTENT ONLY (stickers, product mockups) —
+     never for site chrome. Anything outside this + the system = a bug. */
+  --ds-illus-red:      rgb(252, 79, 24);
+  --ds-illus-note:     "mockup chips & sticker art keep their own colors";
+
+  /* ---- layout ---- */
+  --ds-container:      1200px;              /* content column = hero card width */
+
+  /* ---- bridge: framer tokens -> semantic ---- */
+  --token-2759885a-0605-4b0d-ae5f-9a938c3766f2: var(--ds-ink);
+  --token-33c8dbd0-eb94-4e90-8099-e7a3fee4ad2f: var(--ds-paper);
+  --token-994646e0-68ea-49d7-897a-104048558f6f: var(--ds-gray-600);
+  --token-46244ad7-86a7-41b8-b44b-214d95b54c13: var(--ds-gray-400);
+  --token-e3a90888-763b-420f-bb27-f2520e07d9b1: var(--ds-border);
+  --token-7354084b-2f3d-4256-9942-cf21fcb19d60: var(--ds-surface);
+  --token-4d926bee-328f-497f-a3cd-ce0b138f5bc3: var(--ds-gray-300);
+  --token-d1fa08ee-c247-459b-aaf3-d2091e9cede1: var(--ds-gray-700);
+  --token-bf8bd38a-4575-40c0-9459-6a86668113f1: var(--ds-surface-raised);
+  --token-08cb0f10-6dc5-4949-913f-dbd7168f1cf0: rgb(245, 245, 245);
+
+  /* ---- typography: two families only ---- */
+  --ds-font-display: "Gilroy-SemiBold \261e", "DM Sans", sans-serif;
+  --ds-font-display-bold: "Gilroy-Bold \261e", "DM Sans", sans-serif;
+  --ds-font-sans:    "DM Sans", sans-serif;
+
+  /* muhid-scale: modest sizes, stable tracking */
+  --ds-text-3xl: 44px;  --ds-leading-3xl: 1.08;  --ds-track-3xl: 0; /* hero  */
+  --ds-text-2xl: 32px;  --ds-leading-2xl: 1.12;  --ds-track-2xl: 0;/* section */
+  --ds-text-xl:  24px;  --ds-leading-xl: 1.2;    --ds-track-xl: 0; /* h3    */
+  --ds-text-lg:  20px;  --ds-leading-lg: 1.35;                           /* lede  */
+  --ds-text-md:  17px;  --ds-leading-md: 1.5;                            /* body+ */
+  --ds-text-base:15px;  --ds-leading-base: 1.55;                         /* body  */
+  --ds-text-sm:  13px;  --ds-leading-sm: 1.2;                            /* ui    */
+  --ds-text-xs:  12px;  --ds-leading-xs: 1.2;                            /* caption */
+
+  /* responsive display sizes (fluid) — for hero/page titles + big statements */
+  --ds-display-1: clamp(40px, 5.4vw, 72px);  /* case-study / page hero      */
+  --ds-display-2: clamp(28px, 3.2vw, 46px);  /* large closing statement     */
+  --ds-display-lead: 1.04;  --ds-display-track: -.02em;
+  --ds-title-2:   clamp(28px, 3.4vw, 44px);  /* in-page section title (h2)  */
+  --ds-text-read: 18px;                       /* long-form reading body      */
+  --ds-measure:   66ch;                       /* readable body line length   */
+  --ds-media-max: 960px;                      /* hard cap for images/media   */
+  --ds-panel-pad: clamp(16px, 3vw, 48px);     /* screenshot-panel inner pad  */
+  --ds-section-y: clamp(64px, 7vw, 104px);    /* vertical section rhythm     */
+
+  /* ---- radius: small & quiet; pill for buttons/nav ---- */
+  --ds-radius-sm:   4px;
+  --ds-radius-md:   10px;
+  --ds-radius-lg:   16px;
+  --ds-radius-xl:   20px;
+  --ds-radius-pill: 1000px;
+
+  /* ---- spacing (4px base) ---- */
+  --ds-space-1: 4px;  --ds-space-2: 8px;   --ds-space-3: 12px;
+  --ds-space-4: 16px; --ds-space-5: 20px;  --ds-space-6: 24px;  --ds-space-8: 32px;
+  --ds-space-10: 40px;--ds-space-12: 48px; --ds-space-16: 64px;
+  --ds-space-20: 80px;--ds-space-24: 96px; --ds-space-32: 128px;
+
+  /* ---- elevation: hairlines, not shadows (lg reserved for overlays) ---- */
+  --ds-shadow-sm: 0 0 0 1px rgba(0,0,0,.06);
+  --ds-shadow-md: 0 1px 2px rgba(0,0,0,.05), 0 0 0 1px rgba(0,0,0,.06);
+  --ds-shadow-lg: 0 24px 60px rgba(0,0,0,.12);
+  --ds-shadow-media: 0 10px 30px rgba(0,0,0,.08); /* screenshot lift inside panel */
+  --ds-shadow-nav: none;
+
+  /* ---- motion ---- */
+  --ds-ease: cubic-bezier(.16, 1, .3, 1);      /* ease-out-expo */
+  --ds-ease-quint: cubic-bezier(.22, 1, .36, 1);
+  --ds-dur-fast: .15s;  --ds-dur: .3s;  --ds-dur-slow: .6s;
+
+  --ds-icon-size: 18px;   /* glyph size inside a 40px hit-area */
+}
+
+html{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+body{background:var(--ds-surface)}
+
+/* ============================================================
+   2. COMPONENT CLASSES (ds-*)
+   ============================================================ */
+
+.ds-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  padding:10px 20px;border-radius:var(--ds-radius-pill);font:500 var(--ds-text-sm)/1 var(--ds-font-sans);
+  cursor:pointer;text-decoration:none;transition:opacity var(--ds-dur-fast) var(--ds-ease),transform var(--ds-dur-fast) var(--ds-ease);
+  border:1px solid transparent}
+.ds-btn:hover{opacity:.85}
+.ds-btn--primary{background:var(--ds-ink);color:var(--ds-paper)}
+.ds-btn--secondary{background:var(--ds-paper);color:var(--ds-ink);border-color:var(--ds-border)}
+.ds-btn--accent{background:var(--ds-accent);color:var(--ds-paper)}
+
+/* section title — base component (About Me is the reference styling);
+   two-tone: base ink, <span> soft */
+.ds-section-title{margin:0;color:var(--ds-ink);
+  font:600 clamp(28px,2.6vw,36px)/1.2 var(--ds-font-display);letter-spacing:0}
+.ds-section-title span{color:var(--ds-ink-soft)}
+
+/* eyebrow / kicker — small tracked accent label above a heading */
+.ds-eyebrow{margin:0 0 var(--ds-space-3);color:var(--ds-accent);
+  font:600 var(--ds-text-xs)/1 var(--ds-font-sans);letter-spacing:.14em;text-transform:uppercase}
+
+.ds-card{background:var(--ds-paper);border:1px solid var(--ds-border);
+  border-radius:var(--ds-radius-lg);padding:var(--ds-space-6)}
+.ds-card--feature{border-radius:var(--ds-radius-xl);padding:0;overflow:hidden;background:var(--ds-gray-700);color:var(--ds-paper)}
+
+.ds-tag{display:inline-flex;align-items:center;padding:5px 12px;border-radius:var(--ds-radius-pill);
+  background:var(--ds-surface-raised);color:var(--ds-ink);font:500 var(--ds-text-xs)/1 var(--ds-font-sans)}
+.ds-tag--ink{background:var(--ds-ink);color:var(--ds-paper)}
+.ds-tag--outline{background:transparent;color:var(--ds-gray-600);border:1px solid var(--ds-border)}
+
+.ds-pill-nav{display:inline-flex;align-items:center;gap:20px;padding:10px 18px;
+  border-radius:var(--ds-radius-pill);background:var(--ds-surface-raised)}
+.ds-pill-nav a{color:var(--ds-ink);font:500 var(--ds-text-sm)/1 var(--ds-font-sans);text-decoration:none}
+
+.ds-tooltip{position:relative}
+.ds-tooltip [data-tip]{position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);
+  opacity:0;pointer-events:none;transition:opacity var(--ds-dur-fast);white-space:nowrap;z-index:20}
+.ds-tooltip:hover [data-tip]{opacity:1}
+
+.ds-icon{width:var(--ds-icon-size);height:var(--ds-icon-size);display:block;fill:currentColor}
+.ds-icon-btn{display:inline-flex;align-items:center;justify-content:center;min-width:40px;height:40px;
+  padding:0 11px;border-radius:var(--ds-radius-pill);background:var(--ds-paper);color:var(--ds-ink);
+  border:1px solid var(--ds-border);cursor:pointer;box-sizing:border-box}
+.ds-icon-btn:hover{background:var(--ds-surface-raised)}
+
+.ds-input{padding:10px 14px;border-radius:var(--ds-radius-md);border:1px solid var(--ds-border);
+  font:400 var(--ds-text-base)/1.2 var(--ds-font-sans);background:var(--ds-paper);color:var(--ds-ink);width:100%;box-sizing:border-box}
+.ds-input:focus{outline:2px solid var(--ds-accent);outline-offset:0;border-color:var(--ds-accent)}
+
+.ds-marquee{overflow:hidden;mask:linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent)}
+.ds-marquee>*{display:flex;width:max-content;animation:ds-marquee 30s linear infinite}
+@keyframes ds-marquee{to{transform:translateX(-50%)}}
+
+.ds-heading-ghost{color:var(--ds-gray-400)}
+
+/* ============================================================
+   3. RESKIN LAYER — re-themes existing Framer markup
+   (preset classes = the old type ramp; tags catch customs)
+   ============================================================ */
+
+/* families: headings -> Gilroy, everything else -> DM Sans */
+h1.framer-text,h2.framer-text,h3.framer-text,h4.framer-text{
+  font-family:var(--ds-font-display)!important;font-weight:400!important}
+p.framer-text,a.framer-text,span.framer-text,li.framer-text,div.framer-text{
+  font-family:var(--ds-font-sans)!important}
+h1 .framer-text,h2 .framer-text,h3 .framer-text,h4 .framer-text{
+  font-family:inherit!important;font-size:inherit!important;letter-spacing:inherit!important}
+
+/* display sizes: tags beat inline framer vars */
+h1.framer-text{font-size:clamp(34px,4.6vw,var(--ds-text-3xl))!important;line-height:var(--ds-leading-3xl)!important;letter-spacing:var(--ds-track-3xl)!important}
+h2.framer-text{font-size:clamp(26px,3.4vw,var(--ds-text-2xl))!important;line-height:var(--ds-leading-2xl)!important;letter-spacing:var(--ds-track-2xl)!important}
+h3.framer-text{font-size:var(--ds-text-xl)!important;line-height:var(--ds-leading-xl)!important;letter-spacing:var(--ds-track-xl)!important}
+
+/* old preset ramp -> new scale */
+.framer-styles-preset-1s8fn6c{font-size:clamp(34px,4.6vw,44px)!important;line-height:1.08!important;letter-spacing:0!important;font-family:var(--ds-font-display)!important}
+.framer-styles-preset-4xe5jg{font-size:clamp(26px,3.4vw,32px)!important;line-height:1.12!important;letter-spacing:0!important;font-family:var(--ds-font-display)!important}
+.framer-styles-preset-1v15im0,.framer-styles-preset-1nbpq7r{font-size:24px!important;line-height:1.2!important;letter-spacing:0!important;font-family:var(--ds-font-display)!important}
+.framer-styles-preset-3qmsso{font-size:20px!important;line-height:1.35!important;font-family:var(--ds-font-sans)!important}
+.framer-styles-preset-1xqd5um{font-size:17px!important;line-height:1.5!important;font-family:var(--ds-font-sans)!important}
+.framer-styles-preset-1igwnwn{font-size:16px!important;line-height:1.55!important;font-family:var(--ds-font-sans)!important}
+.framer-styles-preset-1pvr9s{font-size:15px!important;line-height:1.55!important;font-family:var(--ds-font-sans)!important}
+.framer-styles-preset-3j1c0u{font-size:13px!important;line-height:1.2!important;font-family:var(--ds-font-sans)!important;font-weight:500!important}
+.framer-styles-preset-455vy9{font-size:12px!important;line-height:1.2!important;font-family:var(--ds-font-sans)!important;font-weight:500!important}
+/* footer display line ("Lets design incredible work together.") */
+.framer-styles-preset-umXNQhy9r,[data-styles-preset="umXNQhy9r"]{font-family:var(--ds-font-display)!important;letter-spacing:0!important}
+
+/* flat surfaces: decorative shadows -> nothing (hairlines come from borders) */
+#main [style*="box-shadow"]{box-shadow:none!important}
+
+/* nav (uxdayshankar pattern): white pill at rest; once the page scrolls it
+   turns frosted glass — translucent white + backdrop blur + soft shadow —
+   floating over whatever passes underneath. runtime-lite toggles
+   .pm-scrolled at scrollY > 24. */
+nav[data-framer-name="Nav Default"],nav[data-framer-name="Mobile Closed"]{
+  background:rgba(255,255,255,.92)!important;
+  border:1px solid var(--ds-border)!important;box-shadow:none!important;
+  transition:background-color .35s var(--ds-ease),box-shadow .35s var(--ds-ease),
+    border-color .35s var(--ds-ease)}
+nav.pm-scrolled[data-framer-name="Nav Default"],
+nav.pm-scrolled[data-framer-name="Mobile Closed"]{
+  background:rgba(255,255,255,.58)!important;
+  -webkit-backdrop-filter:blur(20px) saturate(1.6);
+  backdrop-filter:blur(20px) saturate(1.6);
+  border-color:rgba(0,0,0,.05)!important;
+  box-shadow:0 12px 32px rgb(0 0 0/.10)!important}
+/* open mobile menu: near-opaque so links stay readable over content */
+nav.menu-open[data-framer-name="Mobile Closed"]{background:rgba(255,255,255,.97)!important}
+/* Framer's own inner glass layer stays off — the nav element is the glass */
+nav[data-framer-name="Nav Default"] [style*="backdrop-filter"],
+nav[data-framer-name="Mobile Closed"] [style*="backdrop-filter"]{
+  backdrop-filter:none!important;-webkit-backdrop-filter:none!important;background:transparent!important}
+
+/* nav contact button: solid ink pill (muhid "Resume" style).
+   Framer draws a gray hairline ring via ::after — off on a dark pill. */
+button[aria-label="Contact Form"]{background:var(--ds-ink)!important;border:none!important;
+  outline:none!important;box-shadow:none!important}
+button[aria-label="Contact Form"]::after{display:none!important;content:none!important}
+button[aria-label="Contact Form"] .framer-text{color:var(--ds-paper)!important;--framer-text-color:var(--ds-paper)!important}
+
+
+/* ============================================================
+   4. SYSTEM ENFORCEMENT
+   Every off-system inline value found in the page audit,
+   mapped to its token. No color renders outside the system.
+   (Exceptions, deliberately untouched as CONTENT: the turfly
+   case-study's product-mockup status chips, and the "made with
+   love" heart sticker illustration.)
+   ============================================================ */
+
+/* links: legacy light-blue rgb(0 153 255) -> the one blue */
+.framer-text a, a.framer-text{
+  --framer-link-text-color:var(--ds-accent);
+  --framer-link-hover-text-color:var(--ds-accent)}
+
+/* stray purples (timeline "2026", NDA-page highlights) -> accent */
+[style*="rgb(82, 0, 255)"]{color:var(--ds-accent)!important}
+[style*="rgb(100, 24, 255)"]{color:var(--ds-accent)!important}
+[style*="background-color:rgb(82, 0, 255)"],
+[style*="background-color: rgb(82, 0, 255)"]{background-color:var(--ds-accent)!important}
+
+/* social icon glyphs stay ink — accent is for emphasis, not chrome */
+a[aria-label$="Link"] svg{color:var(--ds-ink)!important}
+
+/* pure-black surfaces (footer, end-card panel) -> soft ink */
+[style*="background-color:rgb(0, 0, 0)"],
+[style*="background-color: rgb(0, 0, 0)"],
+[style*="background-color:rgba(0, 0, 0, 1)"]{background-color:var(--ds-ink)!important}
+
+/* password gate (inline-styled by runtime-lite markup) -> system */
+[style*="z-index:9999"]>div{
+  background:var(--ds-paper)!important;border:1px solid var(--ds-border);
+  border-radius:var(--ds-radius-lg)!important;padding:40px 32px!important}
+[style*="z-index:9999"] h2{
+  font-family:var(--ds-font-display)!important;font-weight:400!important;
+  font-size:var(--ds-text-xl)!important;letter-spacing:var(--ds-track-xl)!important;
+  color:var(--ds-ink)!important;margin-bottom:16px!important}
+[style*="z-index:9999"] input{
+  border:1px solid var(--ds-border)!important;border-radius:var(--ds-radius-md)!important;
+  font-family:var(--ds-font-sans)!important;font-size:var(--ds-text-base)!important;
+  color:var(--ds-ink)!important}
+[style*="z-index:9999"] input:focus{outline:2px solid var(--ds-accent);border-color:var(--ds-accent)!important}
+[style*="z-index:9999"] button{
+  background:var(--ds-ink)!important;border-radius:var(--ds-radius-pill)!important;
+  font-family:var(--ds-font-sans)!important;font-size:var(--ds-text-sm)!important;
+  font-weight:500!important}
+[style*="z-index:9999"] p[style*="ff0000"],[style*="z-index:9999"] p[style*="255, 0, 0"]{color:var(--ds-accent)!important}
+
+/* interaction states: system-wide, token-only */
+::selection{background:var(--ds-accent);color:var(--ds-paper)}
+:focus-visible{outline:2px solid var(--ds-accent);outline-offset:2px}
+
+
+
+/* footer word cycler: words roll vertically through a one-line window */
+.pm-cycle{display:grid!important;overflow:clip;align-items:center}
+.pm-cycle>*{grid-area:1/1!important;position:relative!important;inset:auto!important;
+  opacity:0;animation:pm-roll 9s var(--ds-ease-quint) infinite both}
+@keyframes pm-roll{
+  0%{transform:translateY(115%);opacity:0}
+  8%,29%{transform:translateY(0);opacity:1}
+  37%,100%{transform:translateY(-115%);opacity:0}}
+
+/* ============================================================
+   5. LAYOUT & SECTION POLISH (site-wide)
+   ============================================================ */
+
+/* one content column rhythm everywhere */
+[data-framer-name="Inside Container"]{max-width:var(--ds-container)!important}
+#main section>div:not(.pm-gal){max-width:var(--ds-container)!important;
+  width:100%!important;margin-left:auto!important;margin-right:auto!important}
+
+/* sections separate by color, not lines (uxdayshankar) */
+#main section,section[data-framer-name],
+#main section>div,#main section>div>div{border:none!important;box-shadow:none!important}
+[data-framer-name="Divider"]{display:none!important}
+/* flush content edges: one 1200px line for headings + grids alike */
+#main section>div:not(.pm-gal){padding-left:0!important;padding-right:0!important}
+@media (max-width:1248px){#main section>div:not(.pm-gal){padding-left:24px!important;padding-right:24px!important}}
+#main section:not([data-framer-name="Hero"])>div:not(.pm-gal){justify-content:flex-start!important}
+#main section>div:not(.pm-gal)>div,
+#main section>div:not(.pm-gal)>div>div,
+#main section [data-framer-name="Inside Container"]{padding-left:0!important;padding-right:0!important}
+#main section [data-framer-name="Projects"],
+#main section [data-framer-name="Top Projects"]{margin-left:0!important;margin-right:0!important}
+section[data-framer-name="Latest Projects"],
+section[data-framer-name="About Me"]{background-color:var(--ds-paper)!important;
+  position:relative;z-index:1}
+/* gallery + testimonial sections stay on the gray page surface.
+   Framer's full-page "BG Color" overlay (was an off-token rgb(250,250,250)
+   painting OVER any section without a z-index) is retinted to the surface
+   token; banded sections get z-index:1 so their backgrounds actually show. */
+[data-framer-name="BG Color"]{background-color:var(--ds-surface)!important}
+
+/* section heading row: heading left, optional action (View All) right */
+.pm-sec-head{display:flex!important;width:100%!important;align-items:baseline!important;
+  justify-content:space-between!important;gap:24px!important}
+.pm-sec-head>div{width:auto!important;flex:0 1 auto!important}
+.pm-sec-head [data-framer-name="View all projects"]{margin:0!important;
+  display:flex!important} /* breakpoint variants hide it; the row owns it now */
+/* "View All" label + arrow: step up from 16px so it holds its own next to
+   the 36px section title */
+.pm-sec-head [data-framer-name="View all projects"] p{
+  font-size:var(--ds-text-lg)!important}
+.pm-sec-head [data-framer-name="View all projects"] svg{
+  width:20px!important;height:20px!important}
+@media (max-width:767.98px){
+  /* title keeps its own line; the action wraps under it, right-aligned */
+  .pm-sec-head{flex-wrap:wrap;row-gap:4px}
+  .pm-sec-head>div:first-child{flex:1 1 100%!important}
+  .pm-sec-head [data-framer-name="View all projects"]{margin-left:auto!important}}
+
+/* nav logo behaves as a link (runtime-lite wires the click) */
+nav [role="link"]{cursor:pointer}
+
+/* social icon buttons: one shape, one glyph size, nothing clipped */
+a[aria-label$="Link"]{
+  min-width:40px!important;height:40px!important;padding:0 11px!important;
+  border-radius:var(--ds-radius-pill)!important;box-sizing:border-box!important;
+  display:inline-flex!important;align-items:center!important;justify-content:center!important;
+  background:var(--ds-paper)!important;border:1px solid var(--ds-border)!important;
+  overflow:visible!important}
+a[aria-label$="Link"]{gap:6px}
+a[aria-label$="Link"] svg{width:var(--ds-icon-size)!important;height:var(--ds-icon-size)!important;display:block}
+/* Framer wraps some glyphs in fixed 14px boxes around 18px svgs — the
+   overflow made icons sit off-center. Let wrappers size to their glyph. */
+a[aria-label$="Link"] div{display:flex!important;align-items:center!important;
+  justify-content:center!important;width:auto!important;height:auto!important;
+  position:relative!important;top:auto!important;left:auto!important}
+a[aria-label$="Link"] .framer-text{color:var(--ds-ink)!important;--framer-text-color:var(--ds-ink)!important}
+a[aria-label$="Link"] img{width:var(--ds-icon-size)!important;height:var(--ds-icon-size)!important;object-fit:contain}
+
+/* section rhythm: one consistent vertical beat (reference-style) */
+#main section:not([data-framer-name="Hero"]),
+[data-framer-name="About Me"],[data-framer-name="Schedule Call"]{
+  padding-top:clamp(56px,6vw,88px)!important;
+  padding-bottom:clamp(56px,6vw,88px)!important;
+  min-height:0!important;height:auto!important;gap:28px!important}
+
+/* kill fixed-height slack inside sections: containers size to content */
+#main section [data-framer-name="Inside Container"],
+#main section ul[role="group"],
+#main section ul[role="group"]>li,
+section[data-framer-name="Big Quote Testimonial"] ul[role="group"] ~ *,
+#main section [data-framer-name="Projects"]{
+  height:auto!important;min-height:0!important}
+section[data-framer-name="Big Quote Testimonial"] ul[role="group"]>li>div,
+section[data-framer-name="Big Quote Testimonial"] [data-framer-name^="Big Quote"]:not(.pm-testi-card){
+  height:100%!important}
+
+/* legacy column hairlines: clash with the card layout */
+[data-framer-name="Border"]{display:none!important}
+
+/* "My Skills" services section: retired (tech stack moved to About Me) */
+.pm-moved-stack{width:100%;margin-top:24px;height:auto!important;min-height:0!important}
+.pm-moved-stack [data-framer-name="Techstack"]{width:100%;flex-wrap:wrap;gap:10px}
+
+/* work-history timeline block: retired */
+[data-framer-name="Timeline"],[data-framer-name="Work History"]{display:none!important}
+
+/* 404 "Back Home" button: was grey text on the ink pill (low contrast) */
+[data-framer-name="Back Home"] .framer-text,
+[data-framer-name="Back Home"] p{color:var(--ds-paper)!important;--framer-text-color:var(--ds-paper)!important}
+
+/* case-study "back to work" link (runtime-inserted above the title) */
+.pm-back{display:inline-flex;align-items:center;gap:8px;
+  color:var(--ds-ink-soft);font:500 15px/1 var(--ds-font-sans);text-decoration:none;
+  margin:0 0 20px;transition:color var(--ds-dur-fast) var(--ds-ease)}
+.pm-back:hover{color:var(--ds-ink)}
+.pm-back svg{transition:transform var(--ds-dur-fast) var(--ds-ease)}
+.pm-back:hover svg{transform:translateX(-3px)}
+
+/* ---- About Me v2 (muhid.de/#work layout) — built by runtime-lite ---- */
+.pm-about{display:grid;grid-template-columns:minmax(300px,5fr) 7fr;
+  gap:28px clamp(48px,7vw,110px);width:100%;align-items:start}
+/* section title: type comes from .ds-section-title; layout-only here */
+.pm-about-title{grid-column:1/-1}
+/* every home section heading inherits the same base styling */
+#projects h2,#explorations h2,#testimonials h2{
+  font:600 clamp(28px,2.6vw,36px)/1.2 var(--ds-font-display)!important;
+  letter-spacing:0!important;color:var(--ds-ink)!important}
+#projects h2 .framer-text,#explorations h2 .framer-text,#testimonials h2 .framer-text{
+  font-family:inherit!important;font-size:inherit!important;
+  font-weight:inherit!important;line-height:inherit!important;
+  letter-spacing:inherit!important}
+/* mobile: one line next to the View All action */
+@media (max-width:767.98px){
+  .ds-section-title,.pm-about-title,
+  #projects h2,#explorations h2,#testimonials h2{font-size:26px!important}}
+.pm-polaroid{background:var(--ds-paper);padding:14px 14px 52px;border-radius:6px;
+  box-shadow:0 18px 40px rgb(0 0 0/.14),0 2px 8px rgb(0 0 0/.06);
+  transform:rotate(-3deg);width:min(330px,92%);margin:10px 0 44px 10px}
+.pm-polaroid img{width:100%;aspect-ratio:1/1;object-fit:cover;display:block;border-radius:2px}
+.pm-about-facts p{margin:0;color:var(--ds-ink);font:600 19px/1.8 var(--ds-font-sans)}
+.pm-about-socslot{margin-top:32px}
+.pm-about-socslot>div{display:flex!important;flex-wrap:wrap;gap:8px;
+  width:auto!important;height:auto!important;position:relative!important}
+.pm-about-sigslot{margin:4px 0 36px}
+.pm-about-head{margin:0;color:var(--ds-ink);
+  /* heading line-height: tight (1.18), not the loose 1.35 it had */
+  font:600 clamp(24px,2.2vw,31px)/1.18 var(--ds-font-display);letter-spacing:-.01em}
+.pm-about-lede{margin:22px 0 24px;color:var(--ds-ink-soft);
+  /* body line-height: 1.55 (matches --ds-leading-base), was a loose 1.7 */
+  font:400 18px/1.55 var(--ds-font-sans);max-width:62ch}
+.pm-worklist{list-style:none;margin:0;padding:0;width:100%}
+.pm-worklist li{border-bottom:1px solid var(--ds-border)}
+.pm-worklist button{display:flex;justify-content:space-between;align-items:center;gap:16px;
+  width:100%;padding:22px 2px;background:none;border:0;cursor:pointer;text-align:left}
+.pm-worklist strong{font:600 19px/1.3 var(--ds-font-sans);color:var(--ds-ink)}
+.pm-worklist button>span{display:inline-flex;align-items:center;gap:10px;
+  color:var(--ds-ink-soft);font:400 17px/1 var(--ds-font-sans);white-space:nowrap}
+.pm-worklist svg{width:15px;height:15px;flex:0 0 auto;
+  transition:transform var(--ds-dur, .3s) var(--ds-ease)}
+.pm-worklist li.open svg{transform:rotate(180deg)}
+.pm-workbody{max-height:0;overflow:hidden;transition:max-height .35s var(--ds-ease)}
+.pm-worklist li.open .pm-workbody{max-height:220px}
+.pm-workbody p{margin:0 0 22px;color:var(--ds-ink-soft);font:400 16px/1.6 var(--ds-font-sans)}
+@media (max-width:900px){
+  .pm-about{grid-template-columns:1fr;gap:40px}
+  .pm-polaroid{margin:6px auto 36px}
+}
+
+/* ---- About Me: fill the container, one type family ---- */
+/* two columns stretch across the full 1200px line */
+#about-me [data-framer-name="Content"]{display:flex!important;width:100%!important;
+  justify-content:space-between!important;gap:clamp(48px,6vw,96px)!important}
+#about-me [data-framer-name="Picture / Work History"]{flex:1 1 42%!important;width:auto!important;max-width:none!important}
+/* the photo/socials stack was hard-sized at 258px — fill the column */
+#about-me [data-framer-name="Your Details"],
+#about-me [data-framer-name="Your Details"]>div:first-child{width:100%!important;max-width:none!important}
+/* fold-fit: photo clamped so photo + name + tech stack ≈ the text column.
+   inner Framer wrapper keeps its 493px box — clip it, don't let it paint
+   behind the socials row */
+#about-me [data-framer-name="Your Details"]>div:first-child{
+  height:min(300px,52vw)!important;overflow:hidden!important;border-radius:16px}
+/* under the photo: name/role left + socials right on ONE row (fold-fit) */
+#about-me [data-framer-name="Your Details"]{height:auto!important;gap:16px!important;
+  display:flex!important;flex-direction:row!important;flex-wrap:wrap!important;
+  align-items:center!important}
+#about-me [data-framer-name="Your Details"]>div:first-child{flex:0 0 100%!important}
+#about-me [data-framer-name="Your Details"]>[data-framer-name="Name / Title"]{
+  order:2;width:auto!important;flex:0 1 auto!important}
+#about-me [data-framer-name="Your Details"]>div:nth-child(2){
+  order:3;margin-left:auto!important;width:auto!important;flex:0 0 auto!important}
+#about-me [data-framer-name="Picture / Work History"]{gap:0!important;height:auto!important}
+#about-me [data-framer-name="Content"]>[data-framer-name="Philosophy"]{
+  flex:1 1 58%!important;width:auto!important;max-width:none!important}
+#about-me [data-framer-name="Philosophy"] [data-framer-name="Philosophy"]{
+  width:100%!important;max-width:none!important}
+/* body copy: DM Sans only; bold lead-ins stay in the same family */
+#about-me [data-framer-name="Philosophy"] .framer-text{
+  font-family:var(--ds-font-sans)!important;letter-spacing:0!important}
+#about-me [data-framer-name="Philosophy"] p,
+#about-me [data-framer-name="Philosophy"] p .framer-text{
+  font-size:17px!important;line-height:1.7!important}
+#about-me [data-framer-name="Philosophy"] p .framer-text{
+  color:var(--ds-ink-soft)!important;--framer-text-color:var(--ds-ink-soft)!important}
+#about-me [data-framer-name="Philosophy"] strong,
+#about-me [data-framer-name="Philosophy"] strong .framer-text{
+  font-weight:600!important;color:var(--ds-ink)!important;--framer-text-color:var(--ds-ink)!important}
+/* "made with love" curved-text stamp: retired */
+#about-me .framer-1vrvkv8-container{display:none!important}
+/* mobile re-sequences children via CSS order — keep: heading, photo column
+   (with the stack inside it), then text */
+#about-me [data-framer-name="Inside Container"]>[data-framer-name="Content"]{order:1!important}
+#about-me .pm-moved-stack{order:99!important} /* last within the photo column */
+
+/* testimonials: quiet accent-tint band, ink type, equal-height cards */
+section[data-framer-name="Big Quote Testimonial"]{background-color:transparent!important}
+section[data-framer-name="Big Quote Testimonial"] h2,
+section[data-framer-name="Big Quote Testimonial"] h2 span{
+  color:var(--ds-ink)!important;--framer-text-color:var(--ds-ink)!important}
+section[data-framer-name="Big Quote Testimonial"] ul[role="group"]{
+  align-items:stretch!important;gap:16px!important}
+section[data-framer-name="Big Quote Testimonial"] ul[role="group"]>li{
+  height:auto!important;display:flex!important}
+section[data-framer-name="Big Quote Testimonial"] ul[role="group"]>li>div>div{height:100%!important}
+section[data-framer-name="Big Quote Testimonial"] ul[role="group"]>li>div,
+section[data-framer-name="Big Quote Testimonial"] [data-framer-name^="Big Quote"]{
+  height:100%!important;width:100%!important;
+  background-color:var(--ds-paper)!important;
+  border:1px solid var(--ds-border)!important;
+  border-radius:var(--ds-radius-lg)!important}
+section[data-framer-name="Big Quote Testimonial"] [data-framer-name="Client"]{
+  background-color:transparent!important;border-bottom:1px solid var(--ds-border)}
+
+
+/* ============================================================
+   6. PROJECT CARDS (muhid case-study pattern)
+   soft rounded media card + corner chip; title/description
+   caption sits below the card on the page surface.
+   ============================================================ */
+[data-framer-name="Image Container"]{
+  position:relative!important;overflow:hidden!important;
+  aspect-ratio:16/10!important;height:auto!important;max-height:350px!important;
+  border-radius:var(--ds-radius-xl)!important;background:var(--ds-surface-raised)!important}
+[data-framer-name="Image Container"] img{
+  object-fit:cover!important;object-position:50% 0!important}
+.pm-chip{
+  position:absolute;right:16px;bottom:16px;width:44px;height:44px;z-index:5;
+  display:flex;align-items:center;justify-content:center;border-radius:50%;
+  background:var(--ds-paper);border:1px solid var(--ds-border);color:var(--ds-ink);
+  transition:transform var(--ds-dur-fast) var(--ds-ease)}
+.pm-chip svg{width:18px;height:18px}
+[data-framer-name="Image Container"]:hover .pm-chip{transform:translate(2px,-2px)}
+div[data-framer-name="Hero"]:has(>div[data-framer-name="Image Container"]){
+  display:flex!important;flex-direction:column!important;height:auto!important;align-items:stretch!important}
+[data-framer-name="Project Client / View Project"]{
+  display:flex!important;opacity:1!important;position:relative!important;inset:auto!important;
+  transform:none!important;width:100%!important;margin-top:4px;padding:0 2px;
+  flex-direction:column!important;align-items:flex-start!important;gap:2px}
+[data-framer-name="Project Client / View Project"] *{
+  position:relative!important;inset:auto!important;transform:none!important;
+  width:auto!important;max-width:100%!important;height:auto!important;
+  white-space:normal!important;flex:0 0 auto!important}
+[data-framer-name="Project Client / View Project"]>div{width:100%!important}
+/* card rows top-align (caption height must not center-shift siblings) */
+div:has(>div>div[data-framer-name="Hero"]>div[data-framer-name="Image Container"]),
+div:has(>div[data-framer-name="Hero"]>div[data-framer-name="Image Container"]){
+  align-items:flex-start!important}
+[data-framer-name="Project Name"] p{
+  font:700 17px/1.3 var(--ds-font-sans)!important;color:var(--ds-ink)!important;
+  --framer-text-color:var(--ds-ink)!important}
+[data-framer-name="Type of Work"] p{
+  font:500 15px/1.45 var(--ds-font-sans)!important;color:var(--ds-gray-600)!important;
+  --framer-text-color:var(--ds-gray-600)!important}
+
+
+/* ============================================================
+   7. HERO CARD (uxdayshankar pattern, home page)
+   hero + client logos live inside one white rounded card
+   floating on the gray page surface.
+   ============================================================ */
+/* the card floats on the gray surface: equal air below the nav (~48px),
+   below the card (48px), and inside above the badge */
+#pm-hero-wrap{display:flex;flex-direction:column;align-items:center;width:100%;
+  position:relative;z-index:1;padding-bottom:48px}
+section[data-framer-name="Hero"]{
+  background:var(--ds-paper)!important;
+  border-radius:var(--ds-radius-xl) var(--ds-radius-xl) 0 0;
+  width:min(1200px,calc(100vw - 48px))!important;position:relative;
+  margin:128px 0 0!important;
+  height:auto!important;min-height:0!important;
+  padding:96px 24px 96px!important}
+section[data-framer-name="Hero"] [data-framer-name="Inside Container"]{
+  padding:0!important;min-height:0!important;height:auto!important;
+  /* the header block is a fixed 1080px column; center it in the card
+     (parent was align-items:flex-start, pinning it 36px left of true center) */
+  align-items:center!important}
+[data-framer-name="Client Logos"]{
+  background:var(--ds-paper)!important;
+  border-radius:0 0 var(--ds-radius-xl) var(--ds-radius-xl);
+  margin:0 auto!important;width:min(1200px,calc(100% - 48px))!important;
+  max-width:none!important;position:relative;align-self:center;
+  padding:40px 0 48px!important;height:auto!important;min-height:0!important}
+[data-framer-name="Client Logos"]>*{width:100%!important;max-width:none!important}
+[data-framer-name="Client Logos"]::before{ /* centered divider, as in the reference */
+  content:"";position:absolute;top:0;left:50%;transform:translateX(-50%);
+  width:min(300px,50%);border-top:1px solid var(--ds-border)}
+section[data-framer-name="Hero"] h1{
+  font-size:clamp(38px,5vw,64px)!important;
+  /* big display type reads loose at normal tracking — tighten slightly */
+  letter-spacing:-.02em!important;line-height:1.08!important;
+  /* main headline: dark ink (the "I fix that." span keeps its own blue) */
+  color:var(--ds-ink)!important;--framer-text-color:var(--ds-ink)!important}
+section[data-framer-name="Hero"] h1 .framer-text{letter-spacing:-.02em!important}
+/* subhead: grey, quieter than the headline */
+section[data-framer-name="Hero"] p,
+section[data-framer-name="Hero"] p .framer-text{
+  color:var(--ds-ink-soft)!important;--framer-text-color:var(--ds-ink-soft)!important}
+/* hero subhead: step up to the lede size in the type scale (was body 16px) */
+section[data-framer-name="Hero"] p,
+section[data-framer-name="Hero"] p .framer-text{
+  font-size:var(--ds-text-lg)!important;line-height:var(--ds-leading-lg)!important}
+.pm-hero-cta{display:flex;gap:12px;justify-content:center;margin-top:34px;flex-wrap:wrap}
+.pm-hero-cta .ds-btn{font-size:var(--ds-text-md)!important;padding:16px 30px!important;
+  min-width:200px!important; /* equal-width pills so the pair reads balanced */
+  white-space:nowrap!important} /* keep each label on one line, don't stack words */
+@media (max-width:767.98px){
+  #pm-hero-wrap{padding-bottom:24px}
+  /* The hero card follows the same 24px gutter as the rest of the page. */
+  section[data-framer-name="Hero"]{
+    width:calc(100vw - (var(--pm-mobile-gutter) * 2))!important;
+    margin:96px auto 0!important;padding:40px 16px!important;
+  }
+  section[data-framer-name="Hero"] h1,
+  section[data-framer-name="Hero"] h2,
+  section[data-framer-name="Hero"] p,
+  [data-framer-name="Client Logos"] p{text-align:center!important}
+  /* the mobile hero headline is an h2 in the phone variant — give it real
+     presence (was 26px) */
+  section[data-framer-name="Hero"] h2,
+  section[data-framer-name="Hero"] h2 .framer-text{
+    font-size:31px!important;line-height:1.18!important;letter-spacing:-.02em!important}
+  [data-framer-name="Client Logos"]{
+    margin:0 auto!important;
+    width:calc(100vw - (var(--pm-mobile-gutter) * 2))!important;
+  }
+  /* Framer locks the hero text block to a fixed 262px on mobile — free it
+     so the headline breathes and the CTA row has room */
+  section[data-framer-name="Hero"] [data-framer-name="Happy Clients, Header, & Description"],
+  section[data-framer-name="Hero"] [data-framer-name="Header / Description"]{
+    width:100%!important;max-width:100%!important}
+  /* stack the two pills full-width on mobile so the pair reads balanced */
+  .pm-hero-cta{flex-direction:column;align-items:center;flex-wrap:nowrap;width:100%}
+  .pm-hero-cta .ds-btn{width:100%;max-width:300px;min-width:0!important;padding:14px 16px!important}}
+
+
+/* ============================================================
+   8. VISUAL EXPLORATIONS — dual marquee (reference: uxdayshankar
+   "Selected interfaces"): two rows auto-scroll in opposite
+   directions; hover pauses.
+   ============================================================ */
+.pm-gal{--pm-fade:140px;display:flex;flex-direction:column;gap:18px;width:100%;max-width:var(--ds-container);
+  margin-left:auto;margin-right:auto;overflow:hidden;margin-top:8px;
+  -webkit-mask:linear-gradient(90deg,transparent,#000 var(--pm-fade),#000 calc(100% - var(--pm-fade)),transparent);
+  mask:linear-gradient(90deg,transparent,#000 var(--pm-fade),#000 calc(100% - var(--pm-fade)),transparent)}
+@media (max-width:767.98px){.pm-gal{--pm-fade:36px}}
+/* explorations rows: hard clip at the container edges, no fade
+   (testimonials keep theirs) */
+#explorations .pm-gal{-webkit-mask:none;mask:none}
+.pm-gal-track{display:flex;gap:18px;width:max-content;animation:pm-gal-scroll 45s linear infinite}
+.pm-gal-track.pm-rev{animation-direction:reverse}
+/* only the testimonial marquee pauses on hover (quotes need reading time);
+   the explorations rows keep moving */
+.pm-testi:hover .pm-gal-track{animation-play-state:paused}
+/* fixed 3:2 cards, artwork bleeds edge-to-edge (design exports at 1200x800) */
+.pm-gal-card{width:min(390px,80vw);aspect-ratio:3/2;flex:0 0 auto;
+  background-color:var(--ds-paper);border:1px solid var(--ds-border);
+  border-radius:var(--ds-radius-lg);overflow:hidden;
+  background-size:cover;background-position:center;background-repeat:no-repeat;
+  background-origin:border-box;padding:0;box-sizing:border-box}
+.pm-testi{margin-top:16px}
+.pm-testi .pm-gal-track{animation-duration:38s;align-items:stretch}
+.pm-testi-card{width:min(388px,85vw)!important;min-width:min(388px,85vw)!important;
+  max-width:min(388px,85vw)!important;flex:0 0 auto!important;height:auto!important;
+  transform:none!important;margin:0!important; /* no staggered offsets: one row, one height */
+  align-self:stretch!important;display:flex!important;flex-direction:column!important;
+  background-color:var(--ds-paper)!important;border:1px solid var(--ds-border)!important;
+  border-radius:var(--ds-radius-lg)!important}
+.pm-avatar{width:46px;height:46px;border-radius:50%;flex:0 0 auto;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--ds-accent-50);color:var(--ds-accent);
+  font:600 15px/1 var(--ds-font-sans);letter-spacing:.5px}
+/* all cards match the tallest: quote area absorbs the slack */
+.pm-testi-card [data-framer-name="Quote"]{flex:1 1 auto!important;height:auto!important}
+.pm-testi-card *{min-width:0!important;max-width:100%!important;white-space:normal!important}
+@keyframes pm-gal-scroll{to{transform:translateX(-50%)}}
+/* Global reduced-motion guard. Covers the hand-built pages AND the leftover
+   Framer animations (hero splash, marquee, reveals) that shipped without one.
+   Near-instant instead of fully off so state changes still read. */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{
+    animation-duration:.01ms!important;animation-iteration-count:1!important;
+    transition-duration:.01ms!important;scroll-behavior:auto!important}
+  .pm-gal-track{animation:none!important}
+}
+
+/* 404: the "Back Home" button shipped left-aligned under centered copy.
+   The container spans full width, so center the button inside it. */
+[data-framer-name="Back Home"]{display:flex!important;justify-content:center!important}
+
+/* ---- Mobile layout: one gutter, unframed section headings ---- */
+@media (max-width:767.98px){
+  :root{--pm-mobile-gutter:24px}
+
+  /* Framer applies a second horizontal inset on several nested wrappers.
+     Sections own the gutter; their content wrappers stay flush to it. */
+  #main section:not([data-framer-name="Hero"]){
+    padding-left:var(--pm-mobile-gutter)!important;
+    padding-right:var(--pm-mobile-gutter)!important;
+    gap:24px!important;
+  }
+  #main section:not([data-framer-name="Hero"])>div:not(.pm-gal),
+  #main section:not([data-framer-name="Hero"]) [data-framer-name="Inside Container"],
+  #main section:not([data-framer-name="Hero"]) [data-framer-name="Projects"],
+  #main section:not([data-framer-name="Hero"]) [data-framer-name="Top Projects"]{
+    width:100%!important;max-width:none!important;
+    margin-left:0!important;margin-right:0!important;
+    padding-left:0!important;padding-right:0!important;
+  }
+
+  /* Section titles remain plain, left-aligned content rather than framed blocks. */
+  #projects h2,#explorations h2,#testimonials h2,.pm-about-title{
+    width:auto!important;margin:0!important;padding:0!important;
+    background:transparent!important;border:0!important;text-align:left!important;
+  }
+  .pm-sec-head{flex-wrap:nowrap!important;align-items:baseline!important;gap:16px!important}
+  .pm-sec-head>div:first-child{flex:1 1 auto!important}
+  .pm-sec-head [data-framer-name="View all projects"]{
+    flex:0 0 auto!important;margin:0!important;white-space:nowrap!important;
+  }
+
+  #projects [data-framer-name="Projects"],
+  #projects [data-framer-name="Top Projects"]{gap:32px!important}
+  #projects [data-framer-name="Project Client / View Project"]{padding-left:0!important;padding-right:0!important}
+}
+
+/* ---- font faces (Gilroy + DM Sans, self-hosted) ---- */
+@font-face {
+  font-family: 'DM Sans';
+  font-style: italic;
+  font-weight: 500;
+  font-display: swap;
+  src: url(fonts/rP2Wp2ywxg089UriCZaSExd86J3t9jz86MvyyKK58VXh.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'DM Sans';
+  font-style: italic;
+  font-weight: 500;
+  font-display: swap;
+  src: url(fonts/rP2Wp2ywxg089UriCZaSExd86J3t9jz86MvyyKy58Q.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'DM Sans';
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url(fonts/rP2Wp2ywxg089UriCZaSExd86J3t9jz86MvyyKK58VXh.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'DM Sans';
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url(fonts/rP2Wp2ywxg089UriCZaSExd86J3t9jz86MvyyKy58Q.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'DM Sans';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url(fonts/rP2Yp2ywxg089UriI5-g4vlH9VoD8Cmcqbu6-K6h9Q.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'DM Sans';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url(fonts/rP2Yp2ywxg089UriI5-g4vlH9VoD8Cmcqbu0-K4.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'DM Sans';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url(fonts/rP2Yp2ywxg089UriI5-g4vlH9VoD8Cmcqbu6-K6h9Q.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'DM Sans';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url(fonts/rP2Yp2ywxg089UriI5-g4vlH9VoD8Cmcqbu0-K4.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face { font-family: "Gilroy-Bold ☞"; src: url("fonts/IzdqF272mATppHOwrnmZWJwu74.woff2"); font-display: swap; font-style: normal; font-weight: 400 }
+@font-face { font-family: "Gilroy-SemiBold ☞"; src: url("fonts/63iABjoST0EjAPKHgmIXXhgs.woff2"); font-display: swap; font-style: normal; font-weight: 400 }
