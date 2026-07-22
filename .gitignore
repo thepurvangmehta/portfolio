@@ -1,5 +1,7 @@
 .DS_Store
 __pycache__/
+# Local-only gate password for deploy (read by deploy step, never committed).
+.gate_pw
 
 # NDA / gated case-study SOURCE (plaintext) must never be committed to this
 # public repo. The built site ships only AES-encrypted ciphertext. Add every

@@ -897,7 +897,7 @@ META = {
     },
     "healthcare": {
         "title": "Healthcare Platform Case Study - Purvang Mehta",
-        "description": "A product design case study for a virtual musculoskeletal healthcare platform, focused on onboarding, clinical trust, and member engagement.",
+        "description": "Healthcare platform product design case study. The full write-up is under NDA and available on request.",
     },
     "turfly": {
         "title": "Turfly Case Study - Purvang Mehta",
@@ -905,7 +905,7 @@ META = {
     },
     "communication-saas": {
         "title": "Communication SaaS Case Study - Purvang Mehta",
-        "description": "UX and product design for a B2B communication SaaS platform that helps organizations deliver personalized audio episodes.",
+        "description": "Communication SaaS product design case study. The full write-up is under NDA and available on request.",
     },
     "nda": {
         "title": "NDA Projects - Purvang Mehta",
