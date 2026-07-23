@@ -50,8 +50,7 @@
       "type": "steps",
       "eyebrow": "How it works",
       "title": "A simple voucher loop. With serious infrastructure.",
-      "intro": null,
-      "_content_note": "Original body here was misplaced healthcare copy; omitted pending correct copy from Purvang.",
+      "intro": "The whole platform runs on one clean loop, four roles moving a single voucher from purchase to payout, with the tracking and controls a financial product needs behind it.",
       "items": [
         {"step": "Step 01", "name": "Golfer", "desc": "Creates a voucher and assigns it to their caddy before or after a round"},
         {"step": "Step 02", "name": "Caddy", "desc": "Receives the voucher, verifies it, and heads to a partnered golf club or retailer"},
@@ -64,7 +63,7 @@
       "eyebrow": "Brand identity",
       "title": "Premium navy. Vibrant gradient. Built for trust.",
       "body": [
-        "Golf is a premium, traditional industry. CaddyPay needed to feel like a fintech product that belonged in that world. Authoritative and modern, never generic. The brand was designed before a single product screen was touched."
+        "Golf is a premium, traditional industry. Turfly needed to feel like a fintech product that belonged in that world. Authoritative and modern, never generic. The brand was designed before a single product screen was touched."
       ],
       "media": {
         "layout": "pair",
@@ -163,8 +162,8 @@
     },
     {
       "type": "testimonial",
-      "quote": "CaddyPay gave the golf industry its first structured digital payment system for caddies. Designed from scratch with a complete brand, design system, and production-ready UI.",
-      "attribution": "Project Summary, CaddyPay"
+      "quote": "Turfly gave the golf industry its first structured digital payment system for caddies. Designed from scratch with a complete brand, design system, and production-ready UI.",
+      "attribution": "Project Summary, Turfly"
     },
     {
       "type": "lessons",

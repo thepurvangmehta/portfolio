@@ -171,7 +171,7 @@
    "type": "ul",
    "items": [
     "Active client data retained during service period",
-    "Archived data kept for a defined retention period",
+    "Archived data kept only as long as needed for the purposes described, or as required by law",
     "Financial records kept as required by law",
     "Option to request data deletion"
    ]
@@ -284,7 +284,7 @@
    "type": "ul",
    "items": [
     "Cross-border data transfers",
-    "EU-US Privacy Shield compliance",
+    "Standard contractual clauses and other appropriate safeguards for cross-border transfers",
     "Standard contractual clauses",
     "International privacy standards",
     "Data protection agreements"
@@ -378,7 +378,7 @@
    "items": [
     "GDPR compliance",
     "CCPA compliance",
-    "Privacy Shield certification",
+    "Data processing agreements with vendors",
     "Local privacy laws",
     "Industry standards"
    ]

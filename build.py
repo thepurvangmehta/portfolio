@@ -714,7 +714,7 @@ def _cs_closing(data, prefix):
 def _cs_gate(data):
     """Clean NDA password gate (replaces the Framer gate for content pages)."""
     return ('<div id="pm-cs-gate" class="cs-gate"><div class="cs-gate-card">'
-            '<h2 class="cs-gate-title">Enter Password</h2>'
+            '<h1 class="cs-gate-title">Enter Password</h1>'
             '<p class="cs-gate-sub">This case study is under NDA. Enter the password to view it, or '
             f'<a href="mailto:{CONTACT_EMAIL}?subject=Case%20study%20access">email me for access</a>.</p>'
             '<form class="cs-gate-form"><input type="password" class="cs-gate-input" '
@@ -1027,7 +1027,8 @@ def build_explorations(prefix):
     return (
         '<section class="pm-home-sec" id="explorations"><div class="pm-home-wrap">'
         '<h2 class="ds-section-title">Visual <span>explorations</span></h2></div>'
-        f'<div class="pm-gal">{track(rows[0], False)}{track(rows[1], True)}</div></section>')
+        '<div class="pm-gal" role="img" aria-label="A gallery of visual design explorations, '
+        f'UI and product screens">{track(rows[0], False)}{track(rows[1], True)}</div></section>')
 
 def build_testimonials(prefix):
     T = [
