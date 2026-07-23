@@ -634,31 +634,18 @@ def _cs_next_projects(data, prefix):
     (follows the next-chain, skips the current one)."""
     cur = data.get("slug")
     seq, slug = [], data.get("next")
-    while slug and slug != cur and all(m["slug"] != slug for m in seq) and len(seq) < 2:
+    while slug and slug != cur and slug not in seq and len(seq) < 2:
         m = _cs_project_meta(slug)
         if not m:
             break
-        seq.append(m); slug = m["next"]
-    arrow = ('<svg class="cs-more-arrow" viewBox="0 0 24 24" width="18" height="18" fill="none" '
-             'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
-             '<path d="M5 12h14M12 5l7 7-7 7"/></svg>')
-    cards = ""
-    for m in seq:
-        thumb = ""
-        if m["thumb"]:
-            img = cs_image(m["thumb"], "", prefix, "pair")
-            if img:
-                thumb = (f'<img src="{img["src"]}" srcset="{img["srcset"]}" '
-                         'sizes="(max-width:760px) 92vw, 46vw" alt="" loading="lazy" decoding="async">')
-        cards += (f'<a class="cs-more-card" href="{prefix}{m["slug"]}/">'
-                  f'<span class="cs-more-thumb">{thumb}</span>'
-                  f'<span class="cs-more-foot"><span class="cs-more-name">{_esc(m["name"])}</span>'
-                  f'{arrow}</span></a>')
-    if not cards:
+        seq.append(slug); slug = m.get("next")
+    if not seq:
         return ""
+    # SAME shared work-card grid as the home + /projects/ page: one card
+    # component and thumbnail ratio everywhere (see build_work_grid).
     return ('<section class="cs-more"><div class="cs-more-inner">'
-            '<h2 class="cs-more-title">Ready for next?</h2>'
-            f'<div class="cs-more-grid">{cards}</div></div></section>')
+            '<h2 class="ds-section-title cs-more-title">Ready for <span>next?</span></h2>'
+            f'{build_work_grid(seq, prefix)}</div></section>')
 
 def build_cta(prefix):
     """The single, canonical contact CTA ("In some other universe...").
@@ -961,7 +948,7 @@ def build_selected_work(prefix):
     with a section header and a 'View all' link. Replaces the Framer projects
     block (which showed 4 projects incl. one that dead-ended on /nda/)."""
     return ('<section class="pm-work-sec" id="work"><div class="pm-work-wrap">'
-            '<div class="pm-work-head"><h2 class="pm-work-h2">Selected work</h2>'
+            '<div class="pm-work-head"><h2 class="ds-section-title">Selected <span>work</span></h2>'
             f'<a class="pm-work-viewall" href="{prefix}projects/">View all'
             '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" '
             'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
@@ -1036,7 +1023,7 @@ def build_explorations(prefix):
                         for s in imgs * 2)   # two identical halves -> seamless -50% loop
         return f'<div class="pm-gal-track{" pm-rev" if rev else ""}">{cards}</div>'
     return (
-        '<section class="pm-home-sec" id="explorations"><div class="pm-home-wrap">'
+        '<section class="pm-home-sec" id="explorations"><div class="pm-home-wrap pm-home-head">'
         '<h2 class="ds-section-title">Visual <span>explorations</span></h2></div>'
         '<div class="pm-gal" role="img" aria-label="A gallery of visual design explorations, '
         f'UI and product screens">{track(rows[0], False)}{track(rows[1], True)}</div></section>')
@@ -1060,8 +1047,8 @@ def build_testimonials(prefix):
             f'<p class="pm-testi-quote">{_esc(q)}</p></div>')
     half = "".join(card(*t) for t in T * 3)      # 6 cards; duplicated below for the loop
     return (
-        '<section class="pm-home-sec pm-home-sec--gray" id="testimonials"><div class="pm-home-wrap">'
-        '<h2 class="ds-section-title">What clients <span>say</span></h2></div>'
+        '<section class="pm-home-sec pm-home-sec--gray" id="testimonials"><div class="pm-home-wrap pm-home-head">'
+        '<h2 class="ds-section-title">From people <span>I’ve built with</span></h2></div>'
         f'<div class="pm-gal pm-testi"><div class="pm-gal-track">{half}{half}</div></div></section>')
 
 WORKLIST_JS = ('<script>document.querySelectorAll(".pm-worklist button").forEach('

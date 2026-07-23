@@ -277,9 +277,8 @@ main.cs > .cs-more{width:100vw;margin-left:calc(50% - 50vw)}
 .cs-more{margin-top:var(--ds-space-16);background:var(--ds-surface);
   padding:var(--cs-band-y) var(--ds-space-6)}
 .cs-more-inner{max-width:var(--cs-max);margin:0 auto}
-.cs-more-title{margin:0 0 var(--ds-space-8);color:var(--ds-ink);
-  font-family:var(--ds-font-display);font-weight:400;font-size:var(--ds-title-2);
-  line-height:1.1;letter-spacing:var(--ds-display-track)}
+/* font/color come from .ds-section-title (shared); this only sets the gap */
+.cs-more-title{margin:0 0 var(--ds-space-10)}
 .cs-more-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--ds-space-8)}
 .cs-more-card{display:block;text-decoration:none;color:inherit}
 .cs-more-thumb{display:block;overflow:hidden;aspect-ratio:4/3;background:var(--ds-surface);
