@@ -711,11 +711,22 @@ def _cs_closing(data, prefix):
     # CTA sits first on white; 'Ready for next?' follows on a grey band
     return build_cta(prefix) + _cs_next_projects(data, prefix)
 
-def _cs_gate(data):
-    """Clean NDA password gate (replaces the Framer gate for content pages)."""
+def _cs_gate(data, prefix=""):
+    """Clean NDA password gate (replaces the Framer gate for content pages).
+    Sits below the nav (so the site stays navigable) and offers an explicit
+    way back to the work index plus an email-for-access path."""
+    work = prefix + "projects/"
     return ('<div id="pm-cs-gate" class="cs-gate"><div class="cs-gate-card">'
-            '<h1 class="cs-gate-title">Enter Password</h1>'
-            '<p class="cs-gate-sub">This case study is under NDA. Enter the password to view it, or '
+            f'<a class="cs-gate-back" href="{work}">'
+            '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" '
+            'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+            '<path d="M19 12H5M12 19l-7-7 7-7"/></svg>Back to work</a>'
+            '<span class="cs-gate-lock"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" '
+            'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" '
+            'aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/>'
+            '<path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>'
+            '<h1 class="cs-gate-title">This case study is under NDA</h1>'
+            '<p class="cs-gate-sub">Enter the password to view it, or '
             f'<a href="mailto:{CONTACT_EMAIL}?subject=Case%20study%20access">email me for access</a>.</p>'
             '<form class="cs-gate-form"><input type="password" class="cs-gate-input" '
             'placeholder="Enter password" aria-label="Password" autocomplete="off">'
@@ -869,7 +880,7 @@ def render_case_study(data, prefix, shell):
                   "shipping locked, UNREADABLE content. Set CS_GATE_PW to make it viewable.")
             pw = base64.b64encode(os.urandom(24)).decode()  # throwaway: never plaintext, undecryptable
         blob = json.dumps(_cs_encrypt(content_html, pw)).replace("</", "<\\/")
-        body = (f'{nav}{_cs_gate(data)}<main class="cs" id="pm-cs-doc"></main>'
+        body = (f'{nav}{_cs_gate(data, prefix)}<main class="cs" id="pm-cs-doc"></main>'
                 f'<script type="application/json" id="pm-cs-blob">{blob}</script>'
                 f'{footer}{toc}{CS_REVEAL_JS}{CS_REEL_JS}{CS_MEDIA_JS}{CS_GATE_JS}')
     else:
@@ -1057,11 +1068,57 @@ WORKLIST_JS = ('<script>document.querySelectorAll(".pm-worklist button").forEach
                'function(b){b.addEventListener("click",function(){'
                'b.parentElement.classList.toggle("open")})});</script>')
 
+def build_splash():
+    """Home-only intro overlay: PURVANG logo reveal + accent dot pop + ink
+    shutter exit (~2s), then the hero entrance choreography. Shows on a fresh/
+    external visit, reload, or logo-click; skipped on internal navigation and
+    under reduced-motion. Returns (css, html). Keyframes here also drive the
+    hero entrance (referenced by HERO_CSS)."""
+    css = ("<style>"
+        "@keyframes pm-hero-zoom{from{opacity:.001;transform:translateY(100px) scale(2)}to{opacity:1;transform:none}}"
+        "@keyframes pm-hero-fade{from{opacity:.001}to{opacity:1}}"
+        "#pm-splash{position:fixed;inset:0;z-index:99999;background:transparent;display:flex;align-items:center;justify-content:center;overflow:hidden;animation:pm-splash-clear .1s linear 1.95s both}"
+        "#pm-splash::before,#pm-splash::after{content:\"\";position:absolute;left:0;width:100%;height:50.2%;background:var(--ds-ink)}"
+        "#pm-splash::before{top:0;animation:pm-shutter-top .6s cubic-bezier(.83,0,.17,1) 1.35s both}"
+        "#pm-splash::after{bottom:0;animation:pm-shutter-bot .6s cubic-bezier(.83,0,.17,1) 1.35s both}"
+        "#pm-splash svg{width:clamp(180px,24vw,300px);height:auto;overflow:visible;position:relative;z-index:1;animation:pm-logo-reveal .8s cubic-bezier(.65,0,.13,1) .15s both,pm-logo-out .3s var(--ds-ease) 1.2s both}"
+        "#pm-splash svg path{fill:var(--ds-paper)}"
+        "#pm-splash svg path.pm-dot{fill:var(--ds-accent);transform-box:fill-box;transform-origin:center;animation:pm-dot-pop .45s cubic-bezier(.34,1.56,.64,1) .85s both}"
+        "@keyframes pm-logo-reveal{from{opacity:0;clip-path:inset(0 100% 0 0);transform:scale(1.08)}60%{opacity:1}to{opacity:1;clip-path:inset(0 -8% 0 0);transform:scale(1)}}"
+        "@keyframes pm-dot-pop{from{transform:scale(0)}to{transform:scale(1)}}"
+        "@keyframes pm-logo-out{to{opacity:0}}"
+        "@keyframes pm-shutter-top{to{transform:translateY(-101%)}}"
+        "@keyframes pm-shutter-bot{to{transform:translateY(101%)}}"
+        "@keyframes pm-splash-clear{to{visibility:hidden}}"
+        ".pm-no-splash #pm-splash{display:none}"
+        "@media (prefers-reduced-motion: reduce){#pm-splash{display:none}}"
+        "</style>")
+    logo_svg = open(ROOT / "logo.svg", encoding="utf-8").read().strip()
+    pm = re.search(r'(<path[^>]*\bd=")(M[^"]*?Z)\s*(M[^"]*")', logo_svg)
+    if pm:
+        logo_svg = logo_svg.replace(pm.group(0), f'<path class="pm-dot" d="{pm.group(2)}"/>{pm.group(1)}{pm.group(3)}', 1)
+    gate = ("<script>(function(){try{"
+            "var e=performance.getEntriesByType('navigation')[0];"
+            "var t=e?e.type:'navigate';"
+            "var logo=sessionStorage.getItem('pm-logo-nav')==='1';"
+            "var skip=sessionStorage.getItem('pm-skip-splash')==='1';"
+            "sessionStorage.removeItem('pm-logo-nav');"
+            "sessionStorage.removeItem('pm-skip-splash');"
+            "var internal=false;"
+            "try{internal=!!document.referrer&&new URL(document.referrer).origin===location.origin}catch(x){}"
+            "if(!logo&&t!=='reload'&&(skip||internal))document.documentElement.classList.add('pm-no-splash');"
+            "}catch(x){}})()</script>")
+    html = (gate + '<div id="pm-splash" aria-hidden="true">' + logo_svg +
+            "</div><script>setTimeout(function(){var s=document.getElementById('pm-splash');if(s)s.remove()},2100)</script>")
+    return css, html
+
 def render_home(prefix, shell):
     """Fully static, deframered home. Assembles hand-built components on a slim
     <head> (no Framer component CSS, no runtime DOM reshaping)."""
+    splash_css, splash_html = build_splash()
     body = (
-        build_nav(prefix)
+        splash_html
+        + build_nav(prefix)
         + '<div id="pm-hero-wrap">' + build_hero(prefix) + build_ticker(prefix) + '</div>'
         + '<main id="pm-main">'
         + build_selected_work(prefix)
@@ -1071,7 +1128,7 @@ def render_home(prefix, shell):
         + '</main>'
         + build_footer(prefix) + WORKLIST_JS)
     head = slim_head(shell)
-    css = "<style>" + HERO_CSS + TICKER_CSS + "</style>"
+    css = "<style>" + HERO_CSS + TICKER_CSS + "</style>" + splash_css
     return "<!DOCTYPE html>" + head + css + "</head><body>" + body + "</body></html>"
 
 def render_404(prefix, shell):

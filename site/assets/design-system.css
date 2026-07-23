@@ -857,29 +857,32 @@ main.legal{background:var(--ds-paper);padding:var(--ds-space-32) var(--ds-space-
 /* ============================================================
    WORK CARDS — shared by the projects page + home 'Selected work'
    ============================================================ */
-main.work{background:var(--ds-paper);max-width:calc(1200px + var(--ds-space-6)*2);
-  margin:0 auto;padding:var(--ds-space-32) var(--ds-space-6) var(--ds-space-24)}
-.work-head{max-width:640px;margin:0 auto var(--ds-space-16);text-align:center}
-.work-title{margin:0;color:var(--ds-ink);font-family:var(--ds-font-sans);
-  font-size:var(--ds-text-3xl);font-weight:700;line-height:1.05;letter-spacing:-.02em;text-wrap:balance}
-.work-sub{margin:var(--ds-space-4) 0 0;color:var(--ds-ink-soft);
-  font:400 var(--ds-text-lg)/1.5 var(--ds-font-sans)}
-.pm-work-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:var(--ds-space-10) var(--ds-space-8)}
-.pm-work-card{display:flex;flex-direction:column;gap:var(--ds-space-4);text-decoration:none}
-.pm-work-thumb{display:block;overflow:hidden;aspect-ratio:16/10;
-  border-radius:var(--ds-radius-lg);background:var(--ds-surface)}
+/* Work page sits on the grey body (no floating white panel); flows into the
+   white footer below. Left-aligned editorial header, then the card grid. */
+main.work{background:transparent;max-width:calc(var(--ds-container) + var(--ds-space-6)*2);
+  margin:0 auto;padding:var(--ds-space-32) var(--ds-space-6) var(--ds-space-32)}
+.work-head{max-width:60ch;margin:0 0 var(--ds-space-20)}
+.work-title{margin:0;color:var(--ds-ink);font-family:var(--ds-font-display,var(--ds-font-sans));
+  font-size:clamp(38px,5.5vw,60px);font-weight:700;line-height:1.02;letter-spacing:-.03em;text-wrap:balance}
+.work-sub{margin:var(--ds-space-5) 0 0;max-width:52ch;color:var(--ds-ink-soft);
+  font:400 var(--ds-text-lg)/1.55 var(--ds-font-sans)}
+.pm-work-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:var(--ds-space-12) var(--ds-space-8)}
+.pm-work-card{display:flex;flex-direction:column;gap:var(--ds-space-5);text-decoration:none}
+.pm-work-thumb{display:block;overflow:hidden;aspect-ratio:16/10;background:var(--ds-paper);
+  border-radius:var(--ds-radius-lg);border:1px solid rgba(0,0,0,.07)}
 .pm-work-thumb img{width:100%;height:100%;object-fit:cover;display:block;
   transition:transform .55s var(--ds-ease)}
 .pm-work-card:hover .pm-work-thumb img{transform:scale(1.03)}
-.pm-work-foot{display:flex;align-items:center;justify-content:space-between;gap:var(--ds-space-4)}
-.pm-work-meta{display:flex;flex-direction:column;gap:3px;min-width:0}
+.pm-work-foot{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--ds-space-4)}
+.pm-work-meta{display:flex;flex-direction:column;gap:4px;min-width:0}
 .pm-work-name{color:var(--ds-ink);font:600 var(--ds-text-xl)/1.2 var(--ds-font-sans);letter-spacing:-.01em}
-.pm-work-label{color:var(--ds-ink-soft);font:400 var(--ds-text-sm)/1.4 var(--ds-font-sans)}
-.pm-work-arrow{flex:none;color:var(--ds-ink);transition:transform .3s var(--ds-ease)}
-.pm-work-card:hover .pm-work-arrow{transform:translate(3px,-3px)}
+.pm-work-label{color:var(--ds-ink-soft);font:400 var(--ds-text-base)/1.45 var(--ds-font-sans)}
+.pm-work-arrow{flex:none;margin-top:4px;color:var(--ds-ink);transition:transform .3s var(--ds-ease)}
+.pm-work-card:hover .pm-work-arrow{transform:translate(3px,-3px);color:var(--ds-accent)}
 @media (max-width:760px){
   main.work{padding:var(--ds-space-32) var(--ds-space-5) var(--ds-space-20)}
-  .pm-work-grid{grid-template-columns:1fr;gap:var(--ds-space-10)}
+  .work-head{margin-bottom:var(--ds-space-12)}
+  .pm-work-grid{grid-template-columns:1fr;gap:var(--ds-space-12)}
 }
 /* Home 'Selected work' section (same grid, section chrome) */
 .pm-work-sec{background:var(--ds-paper);padding:var(--ds-space-24) var(--ds-space-6)}
