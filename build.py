@@ -9,7 +9,7 @@ OUT = ROOT / "site"
 PAGES = {
     "index": "", "projects": "projects", "healthcare": "healthcare",
     "turfly": "turfly", "communication-saas": "communication-saas",
-    "nda": "nda", "terms": "terms", "privacy-policy": "privacy-policy",
+    "terms": "terms", "privacy-policy": "privacy-policy",
     "404": "404",
 }
 
@@ -289,6 +289,7 @@ def build_footer(prefix):
         f'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="{path}"/></svg></a>'
         for name, href, path in PM_SOCIAL)
     return (
+        f'<style>{FOOTER_CSS}</style>'
         '<footer class="pm-footer" id="contact"><div class="pm-footer-inner">'
         '<h2 class="pm-footer-cta"><span class="pm-lead">Lets</span> '
         '<span class="pm-footer-cycle">design</span><br>incredible work together.</h2>'
@@ -599,7 +600,7 @@ CS_GATE_JS = (
     "setTimeout(function(){i.focus();},60);})();</script>")
 
 CS_NICE_NAMES = {
-    "turfly": "Turfly", "healthcare": "SimpleTherapy onboarding",
+    "turfly": "Turfly", "healthcare": "Healthcare platform",
     "communication-saas": "Communication SaaS", "nda": "Private project",
 }
 
@@ -793,6 +794,20 @@ CS_MEDIA_JS = (
     "window.addEventListener('resize',refresh,{passive:true});refresh();});"
     "};</script>")
 
+def slim_head(shell):
+    """Page <head> (from <html ...> up to, not including, </head>) with the heavy
+    Framer component CSS stripped. Keeps @font-face rules (fonts still load), the
+    design-system.css link, SEO/meta, favicon, and analytics. Drops ~122KB of dead
+    Framer layout CSS that hand-built bodies never use."""
+    head = shell[shell.find("<html"):shell.find("</head>")]
+    faces = []
+    for block in re.findall(r'<style[^>]*>(.*?)</style>', head, re.S):
+        faces += re.findall(r'@font-face\s*\{[^}]*\}', block)
+    head = re.sub(r'<style[^>]*>.*?</style>', '', head, flags=re.S)
+    if faces:
+        head += "<style>" + "".join(faces) + "</style>"
+    return head
+
 def render_case_study(data, prefix, shell):
     """Compose a full case-study document from content data, reusing the
     processed shell's <head> (fonts, GA, SEO, design-system, footer CSS).
@@ -843,7 +858,7 @@ def render_case_study(data, prefix, shell):
     toc = CS_TOC_JS if nav_items else ""
     nav = build_nav(prefix)
     footer = build_footer(prefix)
-    head = shell[shell.find("<html"):shell.find("</head>")]
+    head = slim_head(shell)
     cs_css = f'<link rel="stylesheet" href="{prefix}assets/case-study.css">'
     if data.get("gated"):
         # Encrypt the whole content region; ship only ciphertext. The image
@@ -865,6 +880,211 @@ def render_case_study(data, prefix, shell):
     return ("<!DOCTYPE html>" + head + cs_css + "</head><body>"
             + body + "</body></html>")
 
+
+def render_legal(data, prefix, shell):
+    """Deframered legal pages (terms, privacy-policy).
+
+    Content is data (content/<slug>.json: an ordered block list of headings,
+    paragraphs, and bullet lists), rendered on the design system with one
+    reading measure and a clean h1>h2>h3>h4 hierarchy, no Framer markup. Reuses
+    the processed shell's <head> (fonts, SEO, design-system.css)."""
+    def linkify(txt):
+        return re.sub(r'([\w.+-]+@[\w.-]+\.\w+)', r'<a href="mailto:\1">\1</a>', _esc(txt))
+    parts = []
+    for b in data["blocks"]:
+        t = b["type"]
+        if t == "h":
+            lvl = int(b.get("level", 2)); lvl = min(4, max(2, lvl))
+            parts.append(f'<h{lvl} class="legal-h legal-h{lvl}">{_esc(b["text"])}</h{lvl}>')
+        elif t == "p":
+            parts.append(f'<p class="legal-p">{linkify(b["text"])}</p>')
+        elif t == "note":
+            parts.append(f'<p class="legal-note">{linkify(b["text"])}</p>')
+        elif t == "ul":
+            lis = "".join(f'<li>{linkify(i)}</li>' for i in b.get("items", []))
+            parts.append(f'<ul class="legal-ul">{lis}</ul>')
+    updated = (f'<p class="legal-updated">Last updated {_esc(data["updated"])}</p>'
+               if data.get("updated") else "")
+    article = ('<main class="legal"><article class="legal-inner">'
+               f'<header class="legal-head"><h1 class="legal-title">{_esc(data["title"])}</h1>{updated}</header>'
+               f'{"".join(parts)}</article></main>')
+    head = slim_head(shell)
+    return ("<!DOCTYPE html>" + head + "</head><body>"
+            + build_nav(prefix) + article + build_footer(prefix) + "</body></html>")
+
+
+# ---- Shared work cards (projects grid + home 'Selected work'). Only the three
+# real case studies; names come from CS_NICE_NAMES (public-safe), labels here. ----
+WORK_ORDER = ["healthcare", "turfly", "communication-saas"]
+WORK_LABELS = {
+    "healthcare": "UX & product design · under NDA",
+    "turfly": "Brand, design system & admin dashboard",
+    "communication-saas": "0 to 1 B2B SaaS product design",
+}
+
+def build_work_card(slug, prefix):
+    m = _cs_project_meta(slug)
+    if not m:
+        return ""
+    thumb = ""
+    if m["thumb"]:
+        img = cs_image(m["thumb"], "", prefix, "pair")
+        if img:
+            thumb = (f'<img src="{img["src"]}" srcset="{img["srcset"]}" '
+                     'sizes="(max-width:760px) 92vw, 46vw" alt="" loading="lazy" decoding="async">')
+    arrow = ('<svg class="pm-work-arrow" viewBox="0 0 24 24" width="18" height="18" fill="none" '
+             'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" '
+             'aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7"/></svg>')
+    label = WORK_LABELS.get(slug, "")
+    return (f'<a class="pm-work-card" href="{prefix}{slug}/">'
+            f'<span class="pm-work-thumb">{thumb}</span>'
+            f'<span class="pm-work-foot"><span class="pm-work-meta">'
+            f'<span class="pm-work-name">{_esc(m["name"])}</span>'
+            f'<span class="pm-work-label">{_esc(label)}</span></span>{arrow}</span></a>')
+
+def build_work_grid(slugs, prefix):
+    return '<div class="pm-work-grid">' + "".join(build_work_card(s, prefix) for s in slugs) + '</div>'
+
+def build_selected_work(prefix):
+    """Home 'Selected work' section — the same shared work grid as /projects/,
+    with a section header and a 'View all' link. Replaces the Framer projects
+    block (which showed 4 projects incl. one that dead-ended on /nda/)."""
+    return ('<section class="pm-work-sec" id="work"><div class="pm-work-wrap">'
+            '<div class="pm-work-head"><h2 class="pm-work-h2">Selected work</h2>'
+            f'<a class="pm-work-viewall" href="{prefix}projects/">View all'
+            '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" '
+            'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+            '<path d="M5 12h14M12 5l7 7-7 7"/></svg></a></div>'
+            f'{build_work_grid(WORK_ORDER, prefix)}</div></section>')
+
+def render_projects(prefix, shell):
+    """Deframered projects page: hand-built grid of the real case studies on the
+    shared work-card component. Reuses the processed shell's <head>."""
+    body = ('<main class="work"><header class="work-head">'
+            '<h1 class="work-title">My most recent work</h1>'
+            '<p class="work-sub">No fluff, just hard-hitting design projects.</p>'
+            f'</header>{build_work_grid(WORK_ORDER, prefix)}</main>')
+    head = slim_head(shell)
+    return ("<!DOCTYPE html>" + head + "</head><body>"
+            + build_nav(prefix) + body + build_footer(prefix) + "</body></html>")
+
+
+def build_socrow(prefix, cls="pm-soc"):
+    show = ("X", "Threads", "Instagram", "Dribbble", "Behance", "LinkedIn")
+    return "".join(
+        f'<a class="{cls}" href="{href}" target="_blank" rel="noopener" aria-label="{name}">'
+        f'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="{path}"/></svg></a>'
+        for name, href, path in PM_SOCIAL if name in show)
+
+def build_about(prefix):
+    """Static About section (was runtime-JS-reshaped). muhid-style: polaroid +
+    facts + socials on the left; hook, lede, signature, work history on the right."""
+    photo = f'{prefix}assets/images/about-purvang.jpg'
+    sig = f'{prefix}assets/images/signature.svg'
+    facts = ["4+ Years Experience", "Remote · Open to relocate"]
+    jobs = [
+        ("Logicwind", "2025 – Present", "Product Designer, designing web and mobile products for global clients across SaaS and e-commerce."),
+        ("Josh Talks", "2023 – 2025", "Product Designer, grew from the graphics team into product, leading creative direction for the Josh Creators network."),
+        ("BeerBiceps Media", "2021 – 2023", "Graphic Designer & Video Editor, built an Instagram page to 120K followers; edits crossed a million cumulative views."),
+    ]
+    chev = ('<svg viewBox="0 0 256 256" fill="currentColor" aria-hidden="true">'
+            '<path d="M213.7 101.7l-80 80a8 8 0 0 1-11.4 0l-80-80a8 8 0 0 1 11.4-11.4L128 164.7l74.3-74.4a8 8 0 0 1 11.4 11.4Z"/></svg>')
+    facts_html = "".join(f"<p>{_esc(f)}</p>" for f in facts)
+    jobs_html = "".join(
+        f'<li><button type="button"><strong>{_esc(c)}</strong>'
+        f'<span>{_esc(d)}{chev}</span></button>'
+        f'<div class="pm-workbody"><p>{_esc(b)}</p></div></li>'
+        for c, d, b in jobs)
+    return (
+        '<section class="pm-home-sec" id="about-me"><div class="pm-home-wrap">'
+        '<div class="pm-about">'
+        '<h2 class="pm-about-title ds-section-title">About <span>Me</span></h2>'
+        '<div class="pm-about-left">'
+        f'<div class="pm-polaroid"><img src="{photo}" alt="Purvang Mehta"></div>'
+        f'<div class="pm-about-facts">{facts_html}</div>'
+        f'<div class="pm-about-socslot"><div>{build_socrow(prefix)}</div></div>'
+        '</div>'
+        '<div class="pm-about-right">'
+        '<h3 class="pm-about-head">I didn’t start out in design.<br>'
+        'I just never left once I found it.</h3>'
+        '<p class="pm-about-lede">A few years in, I’ve shipped consumer and B2B '
+        'products across healthcare, SaaS, and creator platforms. I do my best work when '
+        'the design problem sits inside a business problem. Right now I’m deep into '
+        'AI-augmented design workflows, Claude, Figma, and vibe-coded prototypes, to move '
+        'faster and test more ideas in less time.</p>'
+        f'<div class="pm-about-sigslot"><img class="pm-sig" src="{sig}" alt="Purvang" '
+        'width="160" height="70" loading="lazy"></div>'
+        f'<ul class="pm-worklist">{jobs_html}</ul>'
+        '</div></div></div></section>')
+
+def build_explorations(prefix):
+    rows = [[f'{prefix}assets/images/exploration-{i}.webp' for i in range(1, 6)],
+            [f'{prefix}assets/images/exploration-{i}.webp' for i in range(6, 11)]]
+    def track(imgs, rev):
+        cards = "".join(f'<div class="pm-gal-card" style="background-image:url({s})"></div>'
+                        for s in imgs * 2)   # two identical halves -> seamless -50% loop
+        return f'<div class="pm-gal-track{" pm-rev" if rev else ""}">{cards}</div>'
+    return (
+        '<section class="pm-home-sec" id="explorations"><div class="pm-home-wrap">'
+        '<h2 class="ds-section-title">Visual <span>explorations</span></h2></div>'
+        f'<div class="pm-gal">{track(rows[0], False)}{track(rows[1], True)}</div></section>')
+
+def build_testimonials(prefix):
+    T = [
+        ("Ranveer Allahbadia", "Entrepreneur & Youtuber",
+         "Really good stuff Purvang, Loving your work! Just Keep going.",
+         "7fplUzhUftZmT4FytxscMUyFM-12f321eb.png"),
+        ("Meet Parmar", "Founder of Ineezy.in",
+         "Purvang brought a fresh perspective to our website redesign. He simplified the "
+         "user journey and made our jewellery platform feel more premium and user-friendly.",
+         "48MxYIJ3eRarVnSkzSgwPp02bCA-849eb294.jpeg"),
+    ]
+    def card(n, r, q, av):
+        return (
+            '<div class="pm-testi-card"><div class="pm-testi-head">'
+            f'<img class="pm-testi-av" src="{prefix}assets/images/{av}" alt="" loading="lazy">'
+            f'<div class="pm-testi-who"><p class="pm-testi-name">{_esc(n)}</p>'
+            f'<p class="pm-testi-role">{_esc(r)}</p></div></div>'
+            f'<p class="pm-testi-quote">{_esc(q)}</p></div>')
+    half = "".join(card(*t) for t in T * 3)      # 6 cards; duplicated below for the loop
+    return (
+        '<section class="pm-home-sec pm-home-sec--gray" id="testimonials"><div class="pm-home-wrap">'
+        '<h2 class="ds-section-title">What clients <span>say</span></h2></div>'
+        f'<div class="pm-gal pm-testi"><div class="pm-gal-track">{half}{half}</div></div></section>')
+
+WORKLIST_JS = ('<script>document.querySelectorAll(".pm-worklist button").forEach('
+               'function(b){b.addEventListener("click",function(){'
+               'b.parentElement.classList.toggle("open")})});</script>')
+
+def render_home(prefix, shell):
+    """Fully static, deframered home. Assembles hand-built components on a slim
+    <head> (no Framer component CSS, no runtime DOM reshaping)."""
+    body = (
+        build_nav(prefix)
+        + '<div id="pm-hero-wrap">' + build_hero(prefix) + build_ticker(prefix) + '</div>'
+        + '<main id="pm-main">'
+        + build_selected_work(prefix)
+        + build_about(prefix)
+        + build_explorations(prefix)
+        + build_testimonials(prefix)
+        + '</main>'
+        + build_footer(prefix) + WORKLIST_JS)
+    head = slim_head(shell)
+    css = "<style>" + HERO_CSS + TICKER_CSS + "</style>"
+    return "<!DOCTYPE html>" + head + css + "</head><body>" + body + "</body></html>"
+
+def render_404(prefix, shell):
+    home = prefix if prefix else "./"
+    body = (
+        build_nav(prefix)
+        + '<main class="pm-404"><div class="pm-404-inner">'
+        '<p class="pm-404-big">404</p>'
+        '<h1 class="pm-404-title">Oops! Wrong turn.</h1>'
+        '<p class="pm-404-sub">The page you are looking for could not be found.</p>'
+        f'<a class="ds-btn ds-btn--primary pm-404-btn" href="{home}">Back home</a>'
+        '</div></main>'
+        + build_footer(prefix))
+    return "<!DOCTYPE html>" + slim_head(shell) + "</head><body>" + body + "</body></html>"
 
 def build_hero(prefix):
     about = prefix + "#about-me"
@@ -1706,6 +1926,21 @@ section[data-framer-name="Schedule Call"]{display:none!important}
                     break
             html = (html[:hm.start()] + '<div id="pm-hero-wrap">' +
                     html[hm.start():pos] + '</div>' + html[pos:])
+        # ---- replace the Framer 'Latest Projects' block with the shared work grid ----
+        psm = re.search(r'<section\b(?=[^>]*data-framer-name="Latest Projects")[^>]*>', html, re.I)
+        if psm:
+            depth, pend = 0, psm.start()
+            for tag in re.finditer(r'</?section\b[^>]*>', html[psm.start():], re.I):
+                depth += -1 if tag.group(0).startswith("</") else 1
+                if depth == 0:
+                    pend = psm.start() + tag.end(); break
+            html = html[:psm.start()] + build_selected_work(prefix) + html[pend:]
+
+        # ---- remove the old Framer 'Schedule Call' CTA (the retired black/yellow
+        # 'In some other universe' variant). The home closes with the footer;
+        # the one canonical CTA lives on the case studies via build_cta(). ----
+        html = remove_named_blocks(html, "section", "Schedule Call")
+
         html = re.sub(r'(<body[^>]*>)', r'\1' + splash.replace('\\', r'\\'), html, count=1)
 
     # ---- re-wire the password gate (check logic lived in the removed Framer bundle) ----
@@ -1812,11 +2047,22 @@ for e in errs[:10]: print("  ERR", e)
 # pass 2: process + write pages
 for name, slug in PAGES.items():
     _cf = ROOT / "content" / f"{name}.json"
-    if _cf.exists():
+    if name == "index":
+        # fully static, deframered home; reuse the processed shell's <head> only
+        out = render_home("", process(name, srcs[name]))
+    elif name == "404":
+        out = render_404("../", process(name, srcs[name]))
+    elif name == "projects":
+        # hand-built projects grid (deframered); reuse the shell's <head> only
+        out = render_projects("../", process(name, srcs[name]))
+    elif _cf.exists():
         # content-driven case study: reuse the processed shell's <head>, render body from data
         _shell = process(name, srcs[name])
         _data = json.load(open(_cf, encoding="utf-8"))
-        out = render_case_study(_data, "../", _shell)
+        if _data.get("kind") == "legal":
+            out = render_legal(_data, "../", _shell)
+        else:
+            out = render_case_study(_data, "../", _shell)
     else:
         out = process(name, srcs[name])
     # No em dashes anywhere on the site (Purvang's standing rule). Strip every

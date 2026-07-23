@@ -1,0 +1,346 @@
+{
+ "slug": "terms",
+ "kind": "legal",
+ "title": "Terms of service",
+ "updated": "2/22/2025",
+ "blocks": [
+  {
+   "type": "h",
+   "level": 2,
+   "text": "1. Services Overview"
+  },
+  {
+   "type": "h",
+   "level": 3,
+   "text": "1.1 Subscription Design Services"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "The \"Unlimited Design Subscription\" provides ongoing design services on a subscription basis",
+    "One active design request at a time",
+    "Unlimited revisions within scope",
+    "Turnaround time: 2-3 business days per request (average)",
+    "Monthly subscription with automatic renewal"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 3,
+   "text": "1.2 Project-Based Services"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "One-time design projects quoted individually",
+    "Scope and deliverables defined before project start",
+    "Revision limits specified in project quote",
+    "Timeline agreed upon before project commencement"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 2,
+   "text": "2. Service Terms"
+  },
+  {
+   "type": "h",
+   "level": 3,
+   "text": "2.1 Subscription Terms"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "Month-to-month subscription with no minimum commitment",
+    "30-day notice required for cancellation",
+    "Subscription pausing available with 15-day notice",
+    "Unused time does not roll over to next month",
+    "Services non-transferable to other parties"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 3,
+   "text": "2.2 Project-Based Terms"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "50% deposit required to commence work",
+    "Final payment due before delivery of final files",
+    "Project timeline begins upon receipt of deposit and all required materials",
+    "Rush fees may apply for expedited timelines"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 2,
+   "text": "3. Scope of Work"
+  },
+  {
+   "type": "h",
+   "level": 3,
+   "text": "3.1 Included Services"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "Brand identity design",
+    "Marketing materials",
+    "Social media graphics",
+    "Website design",
+    "Digital assets",
+    "Print-ready files",
+    "Basic animation and motion graphics"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 3,
+   "text": "3.2 Excluded Services"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "Web development/coding",
+    "Copywriting",
+    "Photography",
+    "Video production",
+    "3D rendering",
+    "App development",
+    "Complex motion graphics"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 2,
+   "text": "4. Client Responsibilities"
+  },
+  {
+   "type": "h",
+   "level": 3,
+   "text": "4.1 Required Materials"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "Brand guidelines (if existing)",
+    "Content and copy",
+    "High-resolution images",
+    "Project brief and requirements",
+    "Timely feedback and approvals"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 3,
+   "text": "4.2 Communication"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "Single point of contact for project management",
+    "Response within 3 business days for feedback",
+    "Clear articulation of revision requests",
+    "Availability for scheduled meetings"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 2,
+   "text": "5. Intellectual Property"
+  },
+  {
+   "type": "h",
+   "level": 3,
+   "text": "5.1 Rights and Ownership"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "Client receives full ownership of final deliverables upon full payment",
+    "Designer retains rights to preliminary concepts not chosen",
+    "Designer maintains portfolio rights to showcase work",
+    "Client responsible for trademark/copyright research"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 3,
+   "text": "5.2 Source Files"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "Working files available for additional fee",
+    "Standard deliverables in standard formats (JPG, PNG, PDF)",
+    "Custom file formats by request"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 2,
+   "text": "6. Revisions and Amendments"
+  },
+  {
+   "type": "h",
+   "level": 3,
+   "text": "6.1 Subscription Revisions"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "Unlimited revisions within original scope",
+    "Major direction changes count as new requests",
+    "Revisions must be requested within 14 days"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 3,
+   "text": "6.2 Project Revisions"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "Number of revisions specified in project quote",
+    "Additional revisions billed at hourly rate",
+    "Scope changes require updated quote"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 2,
+   "text": "7. Termination"
+  },
+  {
+   "type": "h",
+   "level": 3,
+   "text": "7.1 Subscription Termination"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "30-day written notice required",
+    "Pro-rated refund for unused portion",
+    "Active projects must be completed or terminated",
+    "Final files delivered upon account settlement"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 3,
+   "text": "7.2 Project Termination"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "Kill fee of 25% if terminated before completion",
+    "All work completed and paid for is client property",
+    "Unused deposit non-refundable after work begins"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 2,
+   "text": "8. Payment Terms"
+  },
+  {
+   "type": "h",
+   "level": 3,
+   "text": "8.1 Subscription Payments"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "Monthly billing on subscription date",
+    "Auto-payment required",
+    "Late payments pause service",
+    "Failed payments incur $25 fee"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 3,
+   "text": "8.2 Project Payments"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "50% deposit upon agreement",
+    "Remaining 50% before final delivery",
+    "Late payments incur 1.5% monthly interest",
+    "Payment plans available upon request"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 2,
+   "text": "9. Confidentiality"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "Non-disclosure of client business information",
+    "Secure storage of client materials",
+    "Private project details unless authorized",
+    "Confidentiality extends post-project"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 2,
+   "text": "10. Limitation of Liability"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "Maximum liability limited to project fees paid",
+    "No responsibility for third-party services",
+    "No guarantee of specific business results",
+    "Force majeure clause for circumstances beyond control"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 2,
+   "text": "11. Dispute Resolution"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "Good faith negotiation first step",
+    "Mediation before litigation",
+    "Jurisdiction: Surat, Gujarat, India",
+    "Prevailing party entitled to legal fees"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 2,
+   "text": "12. Modifications"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "Terms may be updated with 30-day notice",
+    "Subscription clients notified via email",
+    "Continued use constitutes acceptance",
+    "Special terms require written agreement"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 2,
+   "text": "Contact Information"
+  },
+  {
+   "type": "p",
+   "text": "Purvang Mehta / thepurvangmehta@gmail.com"
+  },
+  {
+   "type": "note",
+   "text": "By engaging our services, you agree to these terms and conditions."
+  }
+ ]
+}

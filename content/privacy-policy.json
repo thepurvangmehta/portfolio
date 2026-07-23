@@ -1,0 +1,391 @@
+{
+ "slug": "privacy-policy",
+ "kind": "legal",
+ "title": "Privacy policy",
+ "updated": "2/22/2025",
+ "blocks": [
+  {
+   "type": "h",
+   "level": 2,
+   "text": "Introduction"
+  },
+  {
+   "type": "p",
+   "text": "This Privacy Policy explains how we collect, use, process, and disclose your information across our design services platform."
+  },
+  {
+   "type": "h",
+   "level": 2,
+   "text": "Information We Collect"
+  },
+  {
+   "type": "h",
+   "level": 3,
+   "text": "1. Information You Provide"
+  },
+  {
+   "type": "h",
+   "level": 4,
+   "text": "Personal Information"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "Name and contact details",
+    "Email address",
+    "Phone number",
+    "Billing address",
+    "Payment information",
+    "Company details (if applicable)"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 4,
+   "text": "Project Information"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "Brand assets and guidelines",
+    "Project briefs and requirements",
+    "Feedback and communications",
+    "Design preferences",
+    "Client-supplied content and materials"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 3,
+   "text": "2. Information Automatically Collected"
+  },
+  {
+   "type": "h",
+   "level": 4,
+   "text": "Website Usage"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "IP address",
+    "Browser type",
+    "Device information",
+    "Operating system",
+    "Pages visited",
+    "Time spent on pages",
+    "Referring website",
+    "Date and time of visits"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 4,
+   "text": "Cookies and Tracking"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "Essential cookies for website functionality",
+    "Analytics cookies for performance measurement",
+    "Preference cookies for user experience",
+    "Marketing cookies (with consent)"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 2,
+   "text": "How We Use Your Information"
+  },
+  {
+   "type": "h",
+   "level": 3,
+   "text": "1. Service Delivery"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "Process design requests",
+    "Manage subscription services",
+    "Handle project communications",
+    "Deliver completed work",
+    "Process payments",
+    "Provide customer support"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 3,
+   "text": "2. Service Improvement"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "Analyze user behavior",
+    "Improve website functionality",
+    "Enhance service offerings",
+    "Optimize user experience",
+    "Debug technical issues"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 3,
+   "text": "3. Communication"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "Service updates and notifications",
+    "Project status updates",
+    "Subscription information",
+    "Marketing communications (with consent)",
+    "Newsletter distribution (opt-in only)"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 2,
+   "text": "Data Storage and Security"
+  },
+  {
+   "type": "h",
+   "level": 3,
+   "text": "1. Data Storage"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "Secure cloud storage providers",
+    "Industry-standard encryption",
+    "Regular security audits",
+    "Limited staff access",
+    "Secure backup systems"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 3,
+   "text": "2. Data Retention"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "Active client data retained during service period",
+    "Archived data kept for a defined retention period",
+    "Financial records kept as required by law",
+    "Option to request data deletion"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 3,
+   "text": "3. Security Measures"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "SSL/TLS encryption",
+    "Secure password policies",
+    "Two-factor authentication",
+    "Regular security updates",
+    "Employee security training"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 2,
+   "text": "Information Sharing"
+  },
+  {
+   "type": "h",
+   "level": 3,
+   "text": "1. Third-Party Service Providers"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "Payment processors",
+    "Cloud storage services",
+    "Email service providers",
+    "Analytics tools",
+    "Project management software"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 3,
+   "text": "2. Legal Requirements"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "Court orders",
+    "Legal obligations",
+    "Government requests",
+    "Rights protection",
+    "Terms enforcement"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 2,
+   "text": "Your Rights and Choices"
+  },
+  {
+   "type": "h",
+   "level": 3,
+   "text": "1. Access Rights"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "View personal data",
+    "Request data copies",
+    "Update information",
+    "Correct inaccuracies",
+    "Download your data"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 3,
+   "text": "2. Control Options"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "Opt-out of marketing",
+    "Cookie preferences",
+    "Newsletter unsubscribe",
+    "Account deletion",
+    "Data removal requests"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 2,
+   "text": "Children's Privacy"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "No services for under 13",
+    "No knowing collection of minor data",
+    "Parent/guardian consent required",
+    "Immediate data deletion if discovered"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 2,
+   "text": "International Data Transfers"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "Cross-border data transfers",
+    "EU-US Privacy Shield compliance",
+    "Standard contractual clauses",
+    "International privacy standards",
+    "Data protection agreements"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 2,
+   "text": "Changes to Privacy Policy"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "Right to update policy",
+    "Notice of material changes",
+    "Email notification of updates",
+    "30-day notice when possible",
+    "Continued use implies acceptance"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 2,
+   "text": "Contact Information"
+  },
+  {
+   "type": "p",
+   "text": "For privacy-related inquiries:"
+  },
+  {
+   "type": "p",
+   "text": "Purvang Mehta / thepurvangmehta@gmail.com"
+  },
+  {
+   "type": "h",
+   "level": 2,
+   "text": "Specific Rights by Region"
+  },
+  {
+   "type": "h",
+   "level": 3,
+   "text": "1. European Users (GDPR)"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "Right to access",
+    "Right to rectification",
+    "Right to erasure",
+    "Right to restrict processing",
+    "Right to data portability",
+    "Right to object",
+    "Rights related to automated decision making"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 3,
+   "text": "2. California Users (CCPA)"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "Right to know what personal information is collected",
+    "Right to know whether personal information is sold or disclosed",
+    "Right to say no to the sale of personal information",
+    "Right to access personal information",
+    "Right to equal service and price"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 3,
+   "text": "3. Other Regions"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "Additional rights as required by local law",
+    "Compliance with regional requirements",
+    "Local data protection standards"
+   ]
+  },
+  {
+   "type": "h",
+   "level": 2,
+   "text": "Compliance and Certification"
+  },
+  {
+   "type": "ul",
+   "items": [
+    "GDPR compliance",
+    "CCPA compliance",
+    "Privacy Shield certification",
+    "Local privacy laws",
+    "Industry standards"
+   ]
+  },
+  {
+   "type": "note",
+   "text": "By using our services, you acknowledge you have read and understood this Privacy Policy."
+  }
+ ]
+}

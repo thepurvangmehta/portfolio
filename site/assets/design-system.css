@@ -116,8 +116,14 @@
   --ds-icon-size: 18px;   /* glyph size inside a 40px hit-area */
 }
 
+/* Base reset — makes the design system self-sufficient once the Framer
+   component CSS is stripped from the <head>. Framer already used border-box,
+   so this is harmless on any page still carrying its markup. */
+*,*::before,*::after{box-sizing:border-box}
 html{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
-body{background:var(--ds-surface)}
+body{margin:0;background:var(--ds-surface);color:var(--ds-ink);
+  font-family:var(--ds-font-sans);font-size:var(--ds-text-base);line-height:1.5}
+a{color:inherit}
 
 /* ============================================================
    2. COMPONENT CLASSES (ds-*)
@@ -805,3 +811,123 @@ section[data-framer-name="Hero"] p .framer-text{
 }
 @font-face { font-family: "Gilroy-Bold ☞"; src: url("fonts/IzdqF272mATppHOwrnmZWJwu74.woff2"); font-display: swap; font-style: normal; font-weight: 400 }
 @font-face { font-family: "Gilroy-SemiBold ☞"; src: url("fonts/63iABjoST0EjAPKHgmIXXhgs.woff2"); font-display: swap; font-style: normal; font-weight: 400 }
+
+/* ============================================================
+   LEGAL PAGES (terms, privacy-policy)
+   Content-driven (content/<slug>.json), deframered onto the type
+   system. One reading measure, clean h1>h2>h3>h4 hierarchy.
+   ============================================================ */
+main.legal{background:var(--ds-paper);padding:var(--ds-space-32) var(--ds-space-6) var(--ds-space-24)}
+.legal-inner{max-width:720px;margin:0 auto}
+.legal-head{margin-bottom:var(--ds-space-12);padding-bottom:var(--ds-space-6);
+  border-bottom:1px solid var(--ds-border)}
+.legal-title{margin:0;color:var(--ds-ink);font-family:var(--ds-font-sans);
+  font-size:var(--ds-text-3xl);font-weight:700;line-height:1.05;letter-spacing:-.02em}
+.legal-updated{margin:var(--ds-space-3) 0 0;color:var(--ds-ink-soft);
+  font:400 var(--ds-text-sm)/1.4 var(--ds-font-sans)}
+.legal-h{color:var(--ds-ink);font-family:var(--ds-font-sans);letter-spacing:-.01em;
+  text-wrap:balance}
+.legal-h2{font-size:var(--ds-text-2xl);font-weight:700;line-height:1.15;
+  margin:var(--ds-space-16) 0 var(--ds-space-5)}
+.legal-h2:first-of-type{margin-top:0}
+.legal-h3{font-size:var(--ds-text-xl);font-weight:600;line-height:1.25;
+  margin:var(--ds-space-10) 0 var(--ds-space-4)}
+.legal-h4{font-size:var(--ds-text-lg);font-weight:600;line-height:1.3;
+  margin:var(--ds-space-6) 0 var(--ds-space-3);color:var(--ds-ink)}
+.legal-p{margin:0 0 var(--ds-space-5);max-width:66ch;color:var(--ds-ink-soft);
+  font:400 var(--ds-text-read)/1.7 var(--ds-font-sans);text-wrap:pretty}
+.legal-ul{margin:0 0 var(--ds-space-6);padding:0;list-style:none;
+  display:flex;flex-direction:column;gap:var(--ds-space-3)}
+.legal-ul li{position:relative;padding-left:var(--ds-space-6);max-width:66ch;
+  color:var(--ds-ink-soft);font:400 var(--ds-text-read)/1.6 var(--ds-font-sans)}
+.legal-ul li::before{content:"";position:absolute;left:4px;top:.62em;
+  width:6px;height:6px;border-radius:50%;background:var(--ds-accent)}
+.legal-note{margin:var(--ds-space-16) 0 0;padding-top:var(--ds-space-6);
+  border-top:1px solid var(--ds-border);max-width:66ch;color:var(--ds-ink);
+  font:500 var(--ds-text-read)/1.6 var(--ds-font-sans)}
+.legal-p a,.legal-ul a,.legal-note a{color:var(--ds-accent);
+  text-decoration:underline;text-underline-offset:2px}
+@media (max-width:760px){
+  main.legal{padding:var(--ds-space-32) var(--ds-space-5) var(--ds-space-20)}
+  .legal-title{font-size:var(--ds-text-2xl)}
+  .legal-h2{font-size:var(--ds-text-xl);margin-top:var(--ds-space-12)}
+  .legal-h3{font-size:var(--ds-text-lg)}
+}
+
+/* ============================================================
+   WORK CARDS — shared by the projects page + home 'Selected work'
+   ============================================================ */
+main.work{background:var(--ds-paper);max-width:calc(1200px + var(--ds-space-6)*2);
+  margin:0 auto;padding:var(--ds-space-32) var(--ds-space-6) var(--ds-space-24)}
+.work-head{max-width:640px;margin:0 auto var(--ds-space-16);text-align:center}
+.work-title{margin:0;color:var(--ds-ink);font-family:var(--ds-font-sans);
+  font-size:var(--ds-text-3xl);font-weight:700;line-height:1.05;letter-spacing:-.02em;text-wrap:balance}
+.work-sub{margin:var(--ds-space-4) 0 0;color:var(--ds-ink-soft);
+  font:400 var(--ds-text-lg)/1.5 var(--ds-font-sans)}
+.pm-work-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:var(--ds-space-10) var(--ds-space-8)}
+.pm-work-card{display:flex;flex-direction:column;gap:var(--ds-space-4);text-decoration:none}
+.pm-work-thumb{display:block;overflow:hidden;aspect-ratio:16/10;
+  border-radius:var(--ds-radius-lg);background:var(--ds-surface)}
+.pm-work-thumb img{width:100%;height:100%;object-fit:cover;display:block;
+  transition:transform .55s var(--ds-ease)}
+.pm-work-card:hover .pm-work-thumb img{transform:scale(1.03)}
+.pm-work-foot{display:flex;align-items:center;justify-content:space-between;gap:var(--ds-space-4)}
+.pm-work-meta{display:flex;flex-direction:column;gap:3px;min-width:0}
+.pm-work-name{color:var(--ds-ink);font:600 var(--ds-text-xl)/1.2 var(--ds-font-sans);letter-spacing:-.01em}
+.pm-work-label{color:var(--ds-ink-soft);font:400 var(--ds-text-sm)/1.4 var(--ds-font-sans)}
+.pm-work-arrow{flex:none;color:var(--ds-ink);transition:transform .3s var(--ds-ease)}
+.pm-work-card:hover .pm-work-arrow{transform:translate(3px,-3px)}
+@media (max-width:760px){
+  main.work{padding:var(--ds-space-32) var(--ds-space-5) var(--ds-space-20)}
+  .pm-work-grid{grid-template-columns:1fr;gap:var(--ds-space-10)}
+}
+/* Home 'Selected work' section (same grid, section chrome) */
+.pm-work-sec{background:var(--ds-paper);padding:var(--ds-space-24) var(--ds-space-6)}
+.pm-work-wrap{max-width:1200px;margin:0 auto}
+.pm-work-head{display:flex;align-items:baseline;justify-content:space-between;
+  gap:var(--ds-space-4);margin-bottom:var(--ds-space-10)}
+.pm-work-h2{margin:0;color:var(--ds-ink);font:700 var(--ds-text-2xl)/1.1 var(--ds-font-sans);
+  letter-spacing:-.02em}
+.pm-work-viewall{display:inline-flex;align-items:center;gap:6px;flex:none;
+  color:var(--ds-ink);text-decoration:none;font:500 var(--ds-text-base)/1 var(--ds-font-sans)}
+.pm-work-viewall:hover{color:var(--ds-accent)}
+@media (max-width:760px){.pm-work-sec{padding:var(--ds-space-16) var(--ds-space-5)}}
+
+/* ============================================================
+   STATIC HOME sections (deframered): hero-wrap, section shell,
+   socials, signature, testimonial-card internals, 404.
+   ============================================================ */
+#pm-hero-wrap{min-height:100vh;min-height:100dvh;justify-content:center;
+  padding-top:120px;background:var(--ds-surface)}
+.pm-home-sec{padding:var(--ds-space-24) var(--ds-space-6);background:var(--ds-paper)}
+.pm-home-sec--gray{background:var(--ds-surface)}
+#about-me.pm-home-sec{background:var(--ds-surface)}
+.pm-home-wrap{max-width:var(--ds-container);margin:0 auto}
+.ds-section-title span,.pm-about-title span,
+#explorations h2 span,#testimonials h2 span{color:var(--ds-ink-soft)}
+/* social icon buttons (About) */
+.pm-soc{display:inline-flex;align-items:center;justify-content:center;width:38px;height:38px;
+  border-radius:50%;background:var(--ds-ink);color:var(--ds-paper);flex:none;
+  transition:transform .2s var(--ds-ease),background .2s var(--ds-ease)}
+.pm-soc svg{width:16px;height:16px;fill:currentColor}
+.pm-soc:hover{transform:translateY(-2px);background:var(--ds-accent)}
+.pm-about-socslot>div{gap:10px!important}
+.pm-sig{display:block;height:60px;width:auto;opacity:.92}
+/* testimonial card internals (static; equal heights via flex stretch, no JS) */
+.pm-testi-head{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+.pm-testi-av{width:46px;height:46px;border-radius:50%;object-fit:cover;flex:0 0 auto}
+.pm-testi-who{min-width:0}
+.pm-testi-name{margin:0;color:var(--ds-ink);font:600 16px/1.25 var(--ds-font-sans)}
+.pm-testi-role{margin:2px 0 0;color:var(--ds-ink-soft);font:400 13px/1.3 var(--ds-font-sans)}
+.pm-testi-quote{margin:0;flex:1 1 auto;color:var(--ds-ink-soft);font:400 16px/1.6 var(--ds-font-sans)}
+.pm-testi-card{padding:24px!important;justify-content:flex-start!important}
+/* 404 */
+.pm-404{min-height:68vh;display:flex;align-items:center;justify-content:center;
+  padding:var(--ds-space-32) var(--ds-space-6) var(--ds-space-24);text-align:center}
+.pm-404-inner{max-width:520px}
+.pm-404-big{margin:0;color:var(--ds-ink);letter-spacing:-.04em;
+  font:700 clamp(90px,18vw,180px)/1 var(--ds-font-display)}
+.pm-404-title{margin:8px 0 0;color:var(--ds-ink);font:600 var(--ds-text-2xl)/1.1 var(--ds-font-display)}
+.pm-404-sub{margin:12px 0 28px;color:var(--ds-ink-soft);font:400 var(--ds-text-lg)/1.5 var(--ds-font-sans)}
+.pm-404-btn{display:inline-flex}
+@media (max-width:767.98px){.pm-home-sec{padding:var(--ds-space-16) var(--ds-space-5)}}
