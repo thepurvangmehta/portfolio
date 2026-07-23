@@ -17,12 +17,27 @@ GIT="git -c core.fsmonitor=false"
 export GIT_TERMINAL_PROMPT=0
 
 # NDA/gated case studies are AES-encrypted at build time with a password that
-# lives ONLY in your environment, never in the repo. Prompt if it is not set.
+# lives ONLY on your machine, never in the repo. Resolve it without re-typing:
+#   1. CS_GATE_PW already in the environment
+#   2. macOS Keychain  (set once -- see below)
+#   3. local .gate_pw file (gitignored, fallback)
+#   4. interactive prompt (last resort)
+#
+# Store it ONCE so you never type it again:
+#   security add-generic-password -U -A -a "$USER" -s portfolio-gate-pw -w
+KEYCHAIN_SVC="portfolio-gate-pw"
+if [ -z "${CS_GATE_PW:-}" ] && command -v security >/dev/null 2>&1; then
+  CS_GATE_PW="$(security find-generic-password -a "$USER" -s "$KEYCHAIN_SVC" -w 2>/dev/null || true)"
+  [ -n "$CS_GATE_PW" ] && echo ">> gate password: loaded from Keychain"
+fi
+if [ -z "${CS_GATE_PW:-}" ] && [ -f .gate_pw ]; then
+  CS_GATE_PW="$(cat .gate_pw)"; echo ">> gate password: loaded from .gate_pw"
+fi
 if [ -z "${CS_GATE_PW:-}" ]; then
   read -rsp "CS_GATE_PW (password for gated case studies, blank = ship locked): " CS_GATE_PW
   echo
-  export CS_GATE_PW
 fi
+export CS_GATE_PW
 echo ">> build";            CS_GATE_PW="${CS_GATE_PW:-}" python3 build.py >/dev/null
 echo ">> stage + commit";   $GIT add -A
 $GIT commit -m "$MSG" -m "Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>" \

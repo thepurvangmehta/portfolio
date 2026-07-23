@@ -840,10 +840,10 @@ def render_case_study(data, prefix, shell):
         main_parts.append(html)             # facts + sections, in the content column
 
     # breadcrumb lives at the top of the sticky sidebar, above the section list
-    home = (f'<a class="cs-toc-home" href="{prefix}">'
+    home = (f'<a class="cs-toc-home" href="{prefix}projects/">'
             '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" '
             'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
-            '<path d="M19 12H5M12 19l-7-7 7-7"/></svg>Home</a>')
+            '<path d="M19 12H5M12 19l-7-7 7-7"/></svg>Work</a>')
     toc = ""
     if nav_items:
         items = "".join(f'<li><a href="#{sid}">{_esc(label)}</a></li>' for sid, label in nav_items)
