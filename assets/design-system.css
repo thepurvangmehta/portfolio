@@ -660,7 +660,7 @@ section[data-framer-name="Hero"] p .framer-text{
    directions; hover pauses.
    ============================================================ */
 .pm-gal{--pm-fade:140px;display:flex;flex-direction:column;gap:18px;width:100%;max-width:var(--ds-container);
-  margin-left:auto;margin-right:auto;overflow:hidden;margin-top:8px;
+  margin-left:auto;margin-right:auto;overflow:hidden;margin-top:0;
   -webkit-mask:linear-gradient(90deg,transparent,#000 var(--pm-fade),#000 calc(100% - var(--pm-fade)),transparent);
   mask:linear-gradient(90deg,transparent,#000 var(--pm-fade),#000 calc(100% - var(--pm-fade)),transparent)}
 @media (max-width:767.98px){.pm-gal{--pm-fade:36px}}
@@ -678,7 +678,7 @@ section[data-framer-name="Hero"] p .framer-text{
   border-radius:var(--ds-radius-lg);overflow:hidden;
   background-size:cover;background-position:center;background-repeat:no-repeat;
   background-origin:border-box;padding:0;box-sizing:border-box}
-.pm-testi{margin-top:16px}
+.pm-testi{margin-top:0}
 .pm-testi .pm-gal-track{animation-duration:38s;align-items:stretch}
 .pm-testi-card{width:min(388px,85vw)!important;min-width:min(388px,85vw)!important;
   max-width:min(388px,85vw)!important;flex:0 0 auto!important;height:auto!important;
@@ -889,6 +889,9 @@ main.work{background:transparent;max-width:calc(var(--ds-container) + var(--ds-s
 .pm-work-wrap{max-width:1200px;margin:0 auto}
 .pm-work-head{display:flex;align-items:baseline;justify-content:space-between;
   gap:var(--ds-space-4);margin-bottom:var(--ds-space-10)}
+/* consistent title -> content gap across home sections (explorations,
+   testimonials). Double-class beats .pm-home-wrap's later `margin:0 auto`. */
+.pm-home-wrap.pm-home-head{margin-bottom:var(--ds-space-10)}
 .pm-work-h2{margin:0;color:var(--ds-ink);font:700 var(--ds-text-2xl)/1.1 var(--ds-font-sans);
   letter-spacing:-.02em}
 .pm-work-viewall{display:inline-flex;align-items:center;gap:6px;flex:none;
