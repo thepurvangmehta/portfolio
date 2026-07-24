@@ -917,9 +917,8 @@ main.work{background:transparent;max-width:calc(var(--ds-container) + var(--ds-s
   /* FigJam-style dot-grid canvas: reads as a designer's working space.
      Scoped to the hero scene only, so it never bleeds into the sections below. */
   background-color:var(--ds-surface);
-  background-image:linear-gradient(rgba(17,17,17,.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(17,17,17,.06) 1px, transparent 1px);
-  background-size:46px 46px;background-position:center top}
+  background-image:radial-gradient(rgba(17,17,17,.14) 1.15px, transparent 1.45px);
+  background-size:24px 24px;background-position:center top}
 .pm-home-sec{padding:var(--ds-space-24) var(--ds-space-6);background:var(--ds-paper)}
 .pm-home-sec--gray{background:var(--ds-surface)}
 #about-me.pm-home-sec{background:var(--ds-surface)}
