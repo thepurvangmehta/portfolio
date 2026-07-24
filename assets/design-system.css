@@ -30,7 +30,7 @@
   --ds-gray-400:       rgb(140, 140, 140);  /* muted, ghost headings        */
   --ds-gray-300:       rgb(185, 185, 185);
   --ds-border:         rgba(0, 0, 0, .10);  /* hairlines                    */
-  --ds-surface:        rgb(245, 245, 245);  /* page background (uxdayshankar gray) */
+  --ds-surface:        rgb(251, 251, 251);  /* page background: soft off-white, lighter than a true gray but still reads distinct from white sections */
   --ds-surface-raised: rgb(245, 245, 245);  /* nav bar, subtle chips        */
 
   --ds-accent:         rgb(28, 53, 236);    /* primary blue                 */
@@ -887,24 +887,39 @@ main.work{background:transparent;max-width:calc(var(--ds-container) + var(--ds-s
 /* Home 'Selected work' section (same grid, section chrome) */
 .pm-work-sec{background:var(--ds-paper);padding:var(--ds-space-24) var(--ds-space-6)}
 .pm-work-wrap{max-width:1200px;margin:0 auto}
-.pm-work-head{display:flex;align-items:baseline;justify-content:space-between;
+.pm-work-head{display:flex;align-items:center;justify-content:space-between;
   gap:var(--ds-space-4);margin-bottom:var(--ds-space-10)}
 /* consistent title -> content gap across home sections (explorations,
    testimonials). Double-class beats .pm-home-wrap's later `margin:0 auto`. */
 .pm-home-wrap.pm-home-head{margin-bottom:var(--ds-space-10)}
+
+/* ---- scroll reveal (progressive enhancement, site-wide) ----
+   Only below-fold elements the JS marks get hidden; default is visible, so
+   no-JS / reduced-motion / already-in-view users always see everything. */
+.pm-reveal{opacity:0;transform:translateY(14px);
+  transition:opacity .55s var(--ds-ease),transform .55s var(--ds-ease)}
+.pm-reveal.is-in{opacity:1;transform:none}
+@media (prefers-reduced-motion:reduce){.pm-reveal{opacity:1;transform:none;transition:none}}
 .pm-work-h2{margin:0;color:var(--ds-ink);font:700 var(--ds-text-2xl)/1.1 var(--ds-font-sans);
   letter-spacing:-.02em}
-.pm-work-viewall{display:inline-flex;align-items:center;gap:6px;flex:none;
-  color:var(--ds-ink);text-decoration:none;font:500 var(--ds-text-base)/1 var(--ds-font-sans)}
+.pm-work-viewall{display:inline-flex;align-items:center;gap:8px;flex:none;
+  color:var(--ds-ink);text-decoration:none;font:600 var(--ds-text-read)/1 var(--ds-font-sans)}
+.pm-work-viewall svg{flex:none;transition:transform .25s var(--ds-ease)}
 .pm-work-viewall:hover{color:var(--ds-accent)}
+.pm-work-viewall:hover svg{transform:translateX(3px)}
 @media (max-width:760px){.pm-work-sec{padding:var(--ds-space-16) var(--ds-space-5)}}
 
 /* ============================================================
    STATIC HOME sections (deframered): hero-wrap, section shell,
    socials, signature, testimonial-card internals, 404.
    ============================================================ */
-#pm-hero-wrap{min-height:100vh;min-height:100dvh;justify-content:center;
-  padding-top:120px;background:var(--ds-surface)}
+#pm-hero-wrap{min-height:100vh;min-height:100dvh;justify-content:center;padding-top:120px;
+  /* FigJam-style dot-grid canvas: reads as a designer's working space.
+     Scoped to the hero scene only, so it never bleeds into the sections below. */
+  background-color:var(--ds-surface);
+  background-image:linear-gradient(rgba(17,17,17,.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(17,17,17,.06) 1px, transparent 1px);
+  background-size:46px 46px;background-position:center top}
 .pm-home-sec{padding:var(--ds-space-24) var(--ds-space-6);background:var(--ds-paper)}
 .pm-home-sec--gray{background:var(--ds-surface)}
 #about-me.pm-home-sec{background:var(--ds-surface)}
