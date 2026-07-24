@@ -2470,6 +2470,25 @@ section[data-framer-name="Schedule Call"]{display:none!important}
 
     return apply_seo(html, name)
 
+# ---- GA4 custom events (portfolio intent signals) --------------------------
+# One delegated click listener, injected on every page before </body>. It
+# classifies link clicks by href and fires gtag events. No PII is ever sent
+# (no emails/values, just the intent + a coarse label).
+ANALYTICS_EVENTS_JS = ("<script>(function(){"
+    "function ev(n,p){try{if(window.gtag)gtag('event',n,p||{});}catch(e){}}"
+    "document.addEventListener('click',function(e){"
+    "var a=e.target&&e.target.closest?e.target.closest('a'):null;if(!a)return;"
+    "var h=(a.getAttribute('href')||'').toLowerCase();var t=(a.textContent||'').trim();"
+    "if(/^mailto:/.test(h)){ev('contact_click',{method:'email'});}"
+    "else if(/cal\\.com/.test(h)){ev('contact_click',{method:'book_call'});}"
+    "else if(/drive\\.google|\\.pdf/.test(h)){ev('resume_click');}"
+    "else if(/(?:^|\\/)(healthcare|turfly|communication-saas)\\/?(?:$|[#?])/.test(h)){"
+    "ev('case_study_open',{slug:(h.match(/healthcare|turfly|communication-saas/)||['?'])[0]});}"
+    "else if(/(?:^|\\/)projects\\/?(?:$|[#?])/.test(h)||/view work/i.test(t)){ev('view_work_click');}"
+    "else if(/x\\.com|threads\\.net|instagram|dribbble|behance|linkedin/.test(h)){"
+    "ev('social_click',{network:(h.match(/x\\.com|threads|instagram|dribbble|behance|linkedin/)||['link'])[0]});}"
+    "},true);})();</script>")
+
 # pass 1: collect assets across all pages
 srcs = {}
 for name in PAGES:
@@ -2519,6 +2538,9 @@ for name, slug in PAGES.items():
     # encoding (literal U+2014, JS backslash-u2014 escape, HTML entities) to a comma.
     out = re.sub(r'\s*(?:' + chr(8212) + r'|\\u2014|&mdash;|&#8212;|&#x2014;)\s*', ', ', out, flags=re.I)
     out = re.sub(r'[ \t]+(?=\n)', '', out)
+    # GA4 intent events on every page (fires only if gtag is present)
+    if "</body>" in out:
+        out = out.replace("</body>", ANALYTICS_EVENTS_JS + "</body>", 1)
     dest = OUT / ("index.html" if name == "index" else f"{slug}/index.html")
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(out, encoding="utf-8")
