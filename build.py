@@ -387,7 +387,7 @@ function rApp(d){return '<div class="pm-card pm-appstore">'+hd('appstore.webp','
 function rGA(d){return '<div class="pm-card pm-ga">'+hd('analytics.webp','Analytics',d.when)+'<div class="pm-bd"><div class="ga-metric">'+d.metric+'</div><div class="ga-desc">'+d.desc+'</div><span class="ga-trend">'+(d.dir==='up'?'▲':'▼')+' '+d.trend+'</span></div></div>';}
 function rClickup(d){return '<div class="pm-card pm-clickup">'+hd('clickup.webp','ClickUp',d.when)+'<div class="pm-bd"><div class="c-task">'+d.task+'</div><div class="c-meta"><span class="c-stat" style="background:'+d.color+'">'+d.stat+'</span><span class="c-due">⏱ '+d.due+'</span></div></div></div>';}
 var R={slack:rSlack,gmail:rGmail,jira:rJira,app:rApp,ga:rGA,clickup:rClickup};
-var HERO={t:'slack',name:'Ananya Rao',ch:'product-team',when:'now',msg:'Signups are up, but people leave before they ever see the value. Any fix?',react:'👀 3'};
+var HERO={t:'slack',name:'Product Owner',ch:'product-team',when:'now',msg:'Signups are up, but people leave before they ever see the value. Any fix?',react:'👀 3'};
 var CARDS=[
  {t:'ga',metric:'62%',desc:'of users drop off at onboarding step 3',dir:'up',trend:'18% WoW',when:'2h'},
  {t:'gmail',from:'Rahul, CEO',subj:'Activation is flat this quarter',snip:'Can you dig into why our Q2 numbers aren\'t moving? Board call is Thursday.',when:'9:41 AM'},
