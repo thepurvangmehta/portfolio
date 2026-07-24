@@ -189,9 +189,8 @@ html.pm-scene #pm-hero-wrap{min-height:0!important;height:320vh;
   padding-top:0!important;padding-bottom:0!important;display:block;background-image:none}
 html.pm-scene .pm-hero-stage{position:sticky;top:0;height:100vh;height:100dvh;overflow:hidden;display:block;
   background-color:var(--ds-surface);
-  background-image:linear-gradient(rgba(17,17,17,.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(17,17,17,.06) 1px, transparent 1px);
-  background-size:46px 46px;background-position:center top}
+  background-image:radial-gradient(rgba(17,17,17,.14) 1.15px, transparent 1.45px);
+  background-size:24px 24px;background-position:center top}
 html.pm-scene .pm-scatter{display:block;position:absolute;inset:0;z-index:3}
 html.pm-scene .pm-resolve{position:absolute;inset:0;display:flex;flex-direction:column;
   justify-content:center;align-items:center;z-index:5;opacity:0;pointer-events:none;
@@ -396,6 +395,7 @@ var stage=wrap&&wrap.querySelector('.pm-hero-stage');
 var scatter=document.getElementById('pm-scatter');
 var resolve=document.getElementById('pm-resolve');
 var hint=document.getElementById('pm-scroll-hint');
+var mark=document.querySelector('.pm-canvas-mark');
 var nav=document.getElementById('pm-nav');
 if(!wrap||!stage||!scatter||!resolve)return;
 var mq=window.matchMedia;
@@ -411,7 +411,7 @@ function rApp(d){return '<div class="pm-card pm-appstore">'+hd('appstore.webp','
 function rGA(d){return '<div class="pm-card pm-ga">'+hd('analytics.webp','Analytics',d.when)+'<div class="pm-bd"><div class="ga-metric">'+d.metric+'</div><div class="ga-desc">'+d.desc+'</div><span class="ga-trend">'+(d.dir==='up'?'▲':'▼')+' '+d.trend+'</span></div></div>';}
 function rClickup(d){return '<div class="pm-card pm-clickup">'+hd('clickup.webp','ClickUp',d.when)+'<div class="pm-bd"><div class="c-task">'+d.task+'</div><div class="c-meta"><span class="c-stat" style="background:'+d.color+'">'+d.stat+'</span><span class="c-due">⏱ '+d.due+'</span></div></div></div>';}
 var R={slack:rSlack,gmail:rGmail,jira:rJira,app:rApp,ga:rGA,clickup:rClickup};
-var HERO={t:'slack',name:'Priya Sharma',ch:'product-team',when:'now',msg:'Hey Purvang, users keep churning right after onboarding 😕',react:'👀 3'};
+var HERO={t:'slack',name:'Ananya Rao',ch:'product-team',when:'now',msg:'Signups are up, but people leave before they ever see the value. Any fix?',react:'👀 3'};
 var CARDS=[
  {t:'ga',metric:'62%',desc:'of users drop off at onboarding step 3',dir:'up',trend:'18% WoW',when:'2h'},
  {t:'gmail',from:'Rahul, CEO',subj:'Activation is flat this quarter',snip:'Can you dig into why our Q2 numbers aren\'t moving? Board call is Thursday.',when:'9:41 AM'},
@@ -498,6 +498,9 @@ function frame(p){
  // wide crossfade but still eases rather than snaps.
  var out=seg(p,0.56,0.72);
  scatter.style.opacity=(1-out);scatter.style.transform='scale('+(1-0.32*out)+')';
+ // the corner "Purvang." canvas mark belongs to the intro only: fade it out with
+ // the flood so it's gone once the headline resolves
+ if(mark)mark.style.opacity=((1-out)*0.2).toFixed(3);
  var inn=seg(p,0.71,0.86);
  resolve.style.opacity=inn;resolve.style.transform='translateY('+(24*(1-inn))+'px)';
  // re-enable clicks once the headline has resolved (it starts pointer-events:none
