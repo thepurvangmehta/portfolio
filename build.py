@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """De-Framer the portfolio: strip Framer runtime, localize all assets."""
 import re, os, hashlib, pathlib, urllib.request, urllib.parse, concurrent.futures
-import json, glob, base64, html as _htmlmod
+import json, glob, base64, shutil, html as _htmlmod
 from PIL import Image
 
 ROOT = pathlib.Path(__file__).parent
@@ -110,6 +110,7 @@ if(href.charAt(0)==='#'&&href.length>1){var tgt=document.getElementById(href.sli
 if(tgt){e.preventDefault();e.stopPropagation();setTimeout(function(){tgt.scrollIntoView({behavior:'smooth'});},50);}}});
 document.addEventListener('click',function(e){if(!n.contains(e.target)){n.classList.remove('open');t.setAttribute('aria-expanded','false');}});}
 var lastY=window.scrollY||0,g=function(){var y=window.scrollY||0;
+if(window.__pmSceneLead){lastY=y;return;}
 n.classList.toggle('pm-scrolled',y>24);
 if(!n.classList.contains('open')){
 if(y>lastY+4&&y>140)n.classList.add('pm-hidden');
@@ -143,7 +144,7 @@ def build_nav(prefix):
 HERO_CSS = """
 .pm-hero{flex:1 1 auto;display:flex;flex-direction:column;justify-content:center;align-items:center;
   width:1200px;max-width:calc(100vw - 48px);box-sizing:border-box;text-align:center;
-  background:var(--ds-paper);border-radius:20px 20px 0 0;padding:56px 40px}
+  padding:56px 40px}
 .pm-hero-content{width:100%;max-width:920px;margin:0 auto}
 .pm-hero-title{margin:0;font-family:var(--ds-font-display,var(--ds-font-sans));font-weight:600;
   font-size:clamp(34px,5vw,64px);line-height:1.06;letter-spacing:-.02em;color:var(--ds-ink)}
@@ -154,7 +155,7 @@ HERO_CSS = """
   font-size:clamp(16px,1.35vw,20px);line-height:1.5;color:var(--ds-ink-soft)}
 .pm-hero .pm-hero-cta{margin-top:36px}
 @media (max-width:767.98px){
-  .pm-hero{width:calc(100vw - 32px);padding:40px 20px;border-radius:24px 24px 0 0}
+  .pm-hero{width:calc(100vw - 32px);padding:40px 20px}
   .pm-hero-title{font-size:clamp(30px,8.5vw,42px);line-height:1.12}
   .pm-hero-sub{font-size:17px}
 }
@@ -182,8 +183,8 @@ TICKER_LOGOS = [
 ]
 
 TICKER_CSS = """
-.pm-ticker{background:var(--ds-paper);border-top:1px solid var(--ds-border);
-  border-radius:0 0 20px 20px;width:1200px;max-width:calc(100vw - 48px);
+.pm-ticker{border-top:1px solid var(--ds-border);
+  width:1200px;max-width:calc(100vw - 48px);
   box-sizing:border-box;display:flex;align-items:center;gap:48px;padding:28px 40px 32px}
 .pm-ticker-label{flex:none;margin:0;font:400 15px/1.4 var(--ds-font-sans);color:var(--ds-ink-soft)}
 .pm-ticker-view{flex:1 1 auto;min-width:0;overflow:hidden;
@@ -195,7 +196,7 @@ TICKER_CSS = """
 @keyframes pm-ticker-scroll{to{transform:translateX(-50%)}}
 @media (max-width:767.98px){
   .pm-ticker{flex-direction:column;align-items:flex-start;gap:18px;
-    padding:24px 20px 28px;width:calc(100vw - 32px);border-radius:0 0 24px 24px}
+    padding:24px 20px 28px;width:calc(100vw - 32px)}
   .pm-ticker-view{width:100%;
     -webkit-mask:linear-gradient(90deg,transparent,#000 24px,#000 calc(100% - 24px),transparent);
     mask:linear-gradient(90deg,transparent,#000 24px,#000 calc(100% - 24px),transparent)}
@@ -222,6 +223,361 @@ def build_ticker(prefix):
         f'<div class="pm-ticker-group" aria-hidden="true">{group}</div>'
         '</div></div></div>'
     )
+
+# ---- interactive hero: "noise -> signal" scroll scene ----------------------
+# Progressive enhancement over the resolved hero (headline + ticker). Default
+# (no-JS / reduced-motion / <768px): the hero shows normally, on the grey
+# surface, no container. When eligible, hero-scene JS adds .pm-scene to <html>
+# and this stylesheet turns #pm-hero-wrap into a pinned scroll scene: a single
+# Slack ping floats in, a scatter of problems floods the space, then it all
+# clears to the headline. No sound. Scatter/hint are hidden until scene mode.
+HERO_SCENE_CSS = """
+.pm-scatter,.pm-scroll-hint{display:none}
+.pm-hero-stage{position:relative;width:100%;display:flex;flex-direction:column;align-items:center;
+  /* clip the headline's zoom-in entrance so it can't cause horizontal scroll
+     on the fallback/mobile path (the scene path already clips via overflow:hidden).
+     clip (not hidden) so it doesn't turn the stage into a vertical scroll box. */
+  overflow-x:clip}
+.pm-resolve{display:flex;flex-direction:column;align-items:center;width:100%}
+
+/* scene mode: the grid rides on the PINNED stage (not the tall scrolling wrap)
+   so it stays fixed in the viewport instead of scrolling away with the page */
+html.pm-scene #pm-hero-wrap{min-height:0!important;height:320vh;
+  padding-top:0!important;padding-bottom:0!important;display:block;background-image:none}
+html.pm-scene .pm-hero-stage{position:sticky;top:0;height:100vh;height:100dvh;overflow:hidden;display:block;
+  background-color:var(--ds-surface);
+  background-image:linear-gradient(rgba(17,17,17,.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(17,17,17,.06) 1px, transparent 1px);
+  background-size:46px 46px;background-position:center top}
+html.pm-scene .pm-scatter{display:block;position:absolute;inset:0;z-index:3}
+html.pm-scene .pm-resolve{position:absolute;inset:0;display:flex;flex-direction:column;
+  justify-content:center;align-items:center;z-index:5;opacity:0;pointer-events:none;
+  will-change:opacity,transform}
+html.pm-scene .pm-resolve .pm-hero{flex:0 0 auto}
+html.pm-scene .pm-resolve .pm-ticker{position:absolute;left:50%;bottom:0;transform:translateX(-50%);
+  width:min(1200px,calc(100vw - 48px));max-width:none;margin:0}
+/* in scene mode the resolve fade is the only hero entrance */
+html.pm-scene .pm-hero-title,html.pm-scene .pm-hero-sub,
+html.pm-scene .pm-hero .pm-hero-cta,html.pm-scene .pm-ticker{animation:none!important}
+
+/* floating notes: real product notification cards, on the grey surface.
+   Each card mimics the look of the tool it comes from (Slack, Gmail, Jira,
+   App Store, Google Analytics, ClickUp) so the flood reads as a real inbox. */
+.pm-note{position:absolute;opacity:0;transform:scale(calc(.72*var(--pm-s,1))) rotate(var(--r,0deg));
+  transition:opacity .45s ease,transform .55s cubic-bezier(.34,1.5,.64,1);will-change:transform,opacity}
+.pm-note.in{opacity:1;transform:scale(var(--pm-s,1)) rotate(var(--r,0deg))}
+.pm-card{background:var(--ds-paper);border:1px solid var(--ds-border);border-radius:14px;
+  box-shadow:0 16px 38px rgba(18,20,40,.13);overflow:hidden;font-family:var(--ds-font-sans);text-align:left}
+.pm-card .pm-hd{display:flex;align-items:center;gap:8px;padding:11px 15px 0}
+.pm-card .pm-hd img{width:19px;height:19px;object-fit:contain;flex:none;display:block}
+.pm-card .pm-app{font-size:11.5px;font-weight:600;color:var(--ds-ink);letter-spacing:.01em}
+.pm-card .pm-when{margin-left:auto;font-size:11px;color:#9aa0aa;font-weight:500}
+.pm-card .pm-bd{padding:8px 15px 15px}
+/* Slack */
+.pm-slack{width:340px;max-width:86vw}
+.pm-slack .pm-hd img{width:22px;height:22px}
+.pm-slack .s-row{display:flex;align-items:center;gap:8px;margin:9px 0 4px}
+.pm-slack .s-name{font-weight:700;font-size:14.5px;color:var(--ds-ink)}
+.pm-slack .s-ch{font-size:11px;color:var(--ds-ink-soft);background:var(--ds-surface);padding:2px 8px;border-radius:5px}
+.pm-slack .s-msg{font-size:14.5px;line-height:1.42;color:var(--ds-ink)}
+.pm-slack .s-react{display:inline-flex;align-items:center;gap:5px;margin-top:10px;font-size:12px;
+  color:var(--ds-ink-soft);border:1px solid var(--ds-border);border-radius:999px;padding:2px 9px;background:var(--ds-surface)}
+/* the opening ping is the anchor: a touch larger + heavier shadow than the flood */
+.pm-slack.pm-hero-card{width:394px;box-shadow:0 24px 54px rgba(18,20,40,.17)}
+.pm-hero-card .pm-hd{padding-top:13px}
+.pm-hero-card .pm-hd img{width:24px;height:24px}
+.pm-hero-card .pm-app{font-size:12.5px}
+.pm-hero-card .s-name{font-size:16px}
+.pm-hero-card .s-msg{font-size:16px;line-height:1.45}
+/* Gmail */
+.pm-gmail{width:302px}
+.pm-gmail .g-from{font-size:13px;color:var(--ds-ink);font-weight:600;margin:8px 0 2px}
+.pm-gmail .g-subj{font-size:14px;font-weight:600;color:var(--ds-ink);line-height:1.3}
+.pm-gmail .g-snip{font-size:13px;color:var(--ds-ink-soft);line-height:1.42;margin-top:2px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+/* Jira / Atlassian */
+.pm-jira{width:272px}
+.pm-jira .j-key{font-size:11px;font-weight:700;color:#5e6c84;letter-spacing:.03em}
+.pm-jira .j-sum{font-size:14px;color:var(--ds-ink);line-height:1.36;margin:6px 0 11px}
+.pm-jira .j-meta{display:flex;align-items:center;gap:9px}
+.pm-jira .j-prio{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:700;color:#cd483b}
+.pm-jira .j-stat{font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
+  color:#42526e;background:#dfe1e6;border-radius:3px;padding:3px 8px}
+/* App Store review */
+.pm-appstore{width:282px}
+.pm-appstore .a-stars{font-size:13px;color:#ff9500;letter-spacing:3px;margin:8px 0 5px}
+.pm-appstore .a-title{font-size:14px;font-weight:700;color:var(--ds-ink);line-height:1.3}
+.pm-appstore .a-body{font-size:13px;color:var(--ds-ink-soft);line-height:1.44;margin-top:3px}
+.pm-appstore .a-by{font-size:11px;color:#9aa0aa;margin-top:9px}
+/* Google Analytics */
+.pm-ga{width:266px}
+.pm-ga .ga-metric{font-size:24px;font-weight:700;color:var(--ds-ink);letter-spacing:-.02em;margin:8px 0 3px}
+.pm-ga .ga-desc{font-size:13px;color:var(--ds-ink-soft);line-height:1.36}
+.pm-ga .ga-trend{display:inline-flex;align-items:center;gap:4px;margin-top:10px;font-size:12px;font-weight:700;
+  color:#d93025;background:#fce8e6;border-radius:999px;padding:3px 10px}
+/* ClickUp */
+.pm-clickup{width:268px}
+.pm-clickup .c-task{font-size:14px;font-weight:600;color:var(--ds-ink);line-height:1.36;margin:8px 0 11px}
+.pm-clickup .c-meta{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.pm-clickup .c-stat{font-size:10px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;
+  color:#fff;border-radius:4px;padding:3px 9px}
+.pm-clickup .c-due{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:700;color:#cd483b}
+
+/* prominent, in-viewport scroll cue: bobs, with an accent wheel + pulsing ring */
+.pm-scroll-hint{position:absolute;left:50%;bottom:30px;transform:translateX(-50%);z-index:6;
+  flex-direction:column;align-items:center;gap:10px}
+html.pm-scene .pm-scroll-hint{display:flex}
+/* faint monochrome signature in the corner of the canvas (scene only) */
+.pm-canvas-mark{display:none}
+html.pm-scene .pm-canvas-mark{display:block;position:absolute;left:28px;bottom:26px;z-index:4;
+  width:82px;opacity:.2;pointer-events:none}
+html.pm-scene .pm-canvas-mark svg{width:100%;height:auto;display:block;overflow:visible}
+html.pm-scene .pm-canvas-mark svg path{fill:var(--ds-ink)!important}
+.pm-scroll-lab{font-size:12px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--ds-ink);animation:pm-scroll-fade 2s ease-in-out infinite}
+.pm-scroll-mouse{width:27px;height:42px;border:2px solid var(--ds-ink);border-radius:14px;position:relative;
+  animation:pm-scroll-bob 1.5s cubic-bezier(.45,0,.2,1) infinite}
+.pm-scroll-mouse::after{content:"";position:absolute;inset:-6px;border-radius:19px;
+  box-shadow:0 0 0 0 rgba(28,53,236,.30);animation:pm-scroll-pulse 1.8s ease-out infinite}
+.pm-scroll-mouse>span{position:absolute;left:50%;top:7px;width:4.5px;height:9px;border-radius:3px;
+  background:var(--ds-accent);transform:translateX(-50%);animation:pm-scroll-wheel 1.5s ease-in-out infinite}
+@keyframes pm-scroll-wheel{0%{opacity:0;top:7px}25%{opacity:1}70%{opacity:0;top:20px}100%{opacity:0;top:20px}}
+@keyframes pm-scroll-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(7px)}}
+@keyframes pm-scroll-pulse{0%{box-shadow:0 0 0 0 rgba(28,53,236,.28)}70%,100%{box-shadow:0 0 0 13px rgba(28,53,236,0)}}
+@keyframes pm-scroll-fade{0%,100%{opacity:.55}50%{opacity:1}}
+@media (prefers-reduced-motion:reduce){
+  .pm-scroll-mouse,.pm-scroll-mouse::after,.pm-scroll-mouse>span,.pm-scroll-lab{animation:none}}
+
+/* ---- #arrange authoring mode (drag + rotate cards, export layout) ---- */
+html.pm-arrange,html.pm-arrange body{overflow:hidden;height:100vh}
+html.pm-arrange #pm-hero-wrap{height:100vh!important}
+html.pm-arrange .pm-resolve,html.pm-arrange .pm-scroll-hint,html.pm-arrange .pm-nav{display:none!important}
+html.pm-arrange .pm-note{transition:none!important;cursor:grab;touch-action:none;
+  user-select:none;-webkit-user-select:none}
+html.pm-arrange .pm-note *{-webkit-user-drag:none;user-select:none;-webkit-user-select:none}
+html.pm-arrange .pm-note.pm-sel{outline:2px solid var(--ds-accent);outline-offset:4px}
+.pm-arrange-bar{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:100000;
+  display:flex;align-items:center;gap:14px;background:var(--ds-ink);color:#fff;
+  padding:8px 8px 8px 18px;border-radius:999px;font:500 13px/1 var(--ds-font-sans);
+  box-shadow:0 12px 34px rgba(0,0,0,.28)}
+.pm-arrange-bar button{border:0;border-radius:999px;background:var(--ds-accent);color:#fff;
+  padding:9px 16px;font:600 13px/1 var(--ds-font-sans);cursor:pointer}
+.pm-arrange-top{position:fixed;top:0;left:0;right:0;z-index:100001;background:var(--ds-accent);color:#fff;
+  text-align:center;padding:9px 12px;font:600 13px/1 var(--ds-font-sans);letter-spacing:.02em}
+"""
+
+HERO_SCENE_JS = r"""<script>(function(){
+var wrap=document.getElementById('pm-hero-wrap');
+var stage=wrap&&wrap.querySelector('.pm-hero-stage');
+var scatter=document.getElementById('pm-scatter');
+var resolve=document.getElementById('pm-resolve');
+var hint=document.getElementById('pm-scroll-hint');
+var nav=document.getElementById('pm-nav');
+if(!wrap||!stage||!scatter||!resolve)return;
+var mq=window.matchMedia;
+function eligible(){return !!mq&&mq('(min-width:768px)').matches&&!mq('(prefers-reduced-motion:reduce)').matches;}
+function clamp(v){return Math.max(0,Math.min(1,v));}
+function seg(p,a,b){return clamp((p-a)/(b-a));}
+var LG='assets/hero/';
+function hd(logo,app,when){return '<div class="pm-hd"><img src="'+LG+logo+'" alt=""><span class="pm-app">'+app+'</span><span class="pm-when">'+when+'</span></div>';}
+function rSlack(d){return '<div class="pm-card pm-slack">'+hd('slack.webp','Slack',d.when)+'<div class="pm-bd"><div class="s-row"><span class="s-name">'+d.name+'</span><span class="s-ch">'+d.ch+'</span></div><div class="s-msg">'+d.msg+'</div>'+(d.react?'<span class="s-react">'+d.react+'</span>':'')+'</div></div>';}
+function rGmail(d){return '<div class="pm-card pm-gmail">'+hd('gmail.webp','Gmail',d.when)+'<div class="pm-bd"><div class="g-from">'+d.from+'</div><div class="g-subj">'+d.subj+'</div><div class="g-snip">'+d.snip+'</div></div></div>';}
+function rJira(d){return '<div class="pm-card pm-jira">'+hd('atlassian.webp','Jira',d.when)+'<div class="pm-bd"><div class="j-key">'+d.key+'</div><div class="j-sum">'+d.sum+'</div><div class="j-meta"><span class="j-prio">▲ '+d.prio+'</span><span class="j-stat">'+d.stat+'</span></div></div></div>';}
+function rApp(d){return '<div class="pm-card pm-appstore">'+hd('appstore.webp','App Store',d.when)+'<div class="pm-bd"><div class="a-stars">'+d.stars+'</div><div class="a-title">'+d.title+'</div><div class="a-body">'+d.body+'</div><div class="a-by">'+d.by+'</div></div></div>';}
+function rGA(d){return '<div class="pm-card pm-ga">'+hd('analytics.webp','Analytics',d.when)+'<div class="pm-bd"><div class="ga-metric">'+d.metric+'</div><div class="ga-desc">'+d.desc+'</div><span class="ga-trend">'+(d.dir==='up'?'▲':'▼')+' '+d.trend+'</span></div></div>';}
+function rClickup(d){return '<div class="pm-card pm-clickup">'+hd('clickup.webp','ClickUp',d.when)+'<div class="pm-bd"><div class="c-task">'+d.task+'</div><div class="c-meta"><span class="c-stat" style="background:'+d.color+'">'+d.stat+'</span><span class="c-due">⏱ '+d.due+'</span></div></div></div>';}
+var R={slack:rSlack,gmail:rGmail,jira:rJira,app:rApp,ga:rGA,clickup:rClickup};
+var HERO={t:'slack',name:'Priya Sharma',ch:'product-team',when:'now',msg:'Hey Purvang, users keep churning right after onboarding 😕',react:'👀 3'};
+var CARDS=[
+ {t:'ga',metric:'62%',desc:'of users drop off at onboarding step 3',dir:'up',trend:'18% WoW',when:'2h'},
+ {t:'gmail',from:'Rahul, CEO',subj:'Activation is flat this quarter',snip:'Can you dig into why our Q2 numbers aren\'t moving? Board call is Thursday.',when:'9:41 AM'},
+ {t:'jira',key:'SUP-2481',sum:'Support tickets doubled after the redesign',prio:'High',stat:'To Do',when:'1h'},
+ {t:'app',stars:'★★☆☆☆',title:'Beautiful, but confusing',body:'"Gorgeous app. I have no idea how to actually use it."',by:'tejas_k · 2d ago',when:'2d'},
+ {t:'clickup',task:'Onboarding revamp',stat:'In progress',color:'#d33d44',due:'overdue 4d',when:'today'},
+ {t:'gmail',from:'Meera, Investor',subj:'What\'s the retention story?',snip:'Loved the growth chart, but where does week-4 retention actually land?',when:'8:12 AM'},
+ {t:'jira',key:'BUG-994',sum:'Users can\'t find how to cancel their plan',prio:'Highest',stat:'In progress',when:'32m'},
+ {t:'ga',metric:'-27%',desc:'week-4 retention vs last cohort',dir:'down',trend:'27% MoM',when:'1d'},
+ {t:'app',stars:'★☆☆☆☆',title:'Does everything, explains nothing',body:'"Powerful, but I gave up before I saw the value."',by:'anaya.p · 5d ago',when:'5d'},
+ {t:'clickup',task:'Fix step-3 signup form',stat:'Blocked',color:'#7b68ee',due:'due today',when:'1h'},
+ {t:'slack',name:'Arjun',ch:'growth',when:'11:02',msg:'signups are up but revenue is flat, what gives?',react:'😬 5'},
+ {t:'ga',metric:'3.1x',desc:'avg time to finish setup',dir:'up',trend:'up from 1.2x',when:'4h'},
+ {t:'gmail',from:'Support lead',subj:'Refund requests are spiking',snip:'Two enterprise accounts churned this week, both said it was too hard to use.',when:'Tue'},
+ {t:'jira',key:'UX-1207',sum:'Drop-off spikes on the mobile signup step',prio:'High',stat:'To Do',when:'2h'},
+ {t:'ga',metric:'1.9%',desc:'free-to-paid conversion, down from 3.4%',dir:'down',trend:'44% QoQ',when:'6h'},
+ {t:'slack',name:'Neha',ch:'design',when:'3:20',msg:'we shipped the redesign but the numbers didn\'t move',react:'🤔 2'},
+ {t:'app',stars:'★★☆☆☆',title:'Confusing setup',body:'"Took me 20 minutes to do one simple thing."',by:'rohan_d · 1w ago',when:'1w'},
+ {t:'clickup',task:'Audit the activation funnel',stat:'Overdue',color:'#e5484d',due:'3d late',when:'Mon'},
+ {t:'gmail',from:'Head of Product',subj:'Trial-to-paid has stalled',snip:'We get the signups but almost nobody upgrades. What is blocking them?',when:'Wed'},
+ {t:'app',stars:'★★★☆☆',title:'Good bones, rough edges',body:'"Great idea, but I keep getting lost in it."',by:'meera_s · 3d ago',when:'3d'},
+ {t:'jira',key:'ONB-58',sum:'Users skip the setup wizard entirely',prio:'Medium',stat:'In progress',when:'5h'},
+ {t:'clickup',task:'Rework the empty states',stat:'Blocked',color:'#7b68ee',due:'no owner',when:'Wed'},
+ {t:'ga',metric:'12%',desc:'feature adoption after 30 days',dir:'down',trend:'target was 40%',when:'1d'},
+ {t:'slack',name:'Dev',ch:'support',when:'09:15',msg:'we are drowning in "how do I..." messages again',react:'😩 4'}
+];
+var items=[];
+// baked arrangement (Purvang's own layout, authored in #arrange mode).
+// i:-1 = the opener (HERO); otherwise an index into CARDS. x,y are the card
+// CENTRE as a fraction of the stage, so the whole layout scales with the
+// viewport; r is rotation in degrees.
+var LAYOUT=[
+ {i:-1,x:0.5041,y:0.4557,r:-2},
+ {i:3,x:0.6633,y:0.5985,r:10.6},
+ {i:8,x:0.3128,y:0.4291,r:6.7},
+ {i:7,x:0.7646,y:0.3489,r:-4},
+ {i:11,x:0.2896,y:0.2167,r:20.1},
+ {i:17,x:0.6208,y:0.8558,r:15},
+ {i:6,x:0.8391,y:0.4443,r:5.4},
+ {i:14,x:0.9177,y:0.6143,r:-4.9},
+ {i:10,x:0.875,y:0.197,r:-12.6},
+ {i:5,x:0.1719,y:0.6224,r:-7},
+ {i:2,x:0.699,y:0.1648,r:10},
+ {i:16,x:0.8794,y:0.8656,r:11.8},
+ {i:0,x:0.4198,y:0.6683,r:8.3},
+ {i:21,x:0.4563,y:0.127,r:7.8},
+ {i:15,x:0.1219,y:0.8173,r:11.8},
+ {i:4,x:0.5718,y:0.2388,r:-11},
+ {i:23,x:0.127,y:0.4031,r:-3.3},
+ {i:9,x:0.2756,y:0.756,r:-12.4},
+ {i:22,x:0.1065,y:0.1871,r:-8.7},
+ {i:1,x:0.4445,y:0.8666,r:-3.8},
+ {i:19,x:0.7484,y:0.7541,r:-6.9}
+];
+function build(){
+ scatter.innerHTML='';items=[];
+ var W=stage.clientWidth||window.innerWidth,H=stage.clientHeight||window.innerHeight;
+ // the layout was authored at ~1512px wide; scale the cards with the viewport
+ // so the composition holds (and doesn't overlap/clip) on narrower desktops.
+ // Cards scale around their own centre, so their fractional positions are kept.
+ scatter.style.setProperty('--pm-s',Math.max(0.6,Math.min(1,W/1512)).toFixed(3));
+ var N=LAYOUT.length;
+ for(var k=0;k<N;k++){
+  var L=LAYOUT[k],card=L.i<0?HERO:CARDS[L.i];if(!card)continue;
+  var el=document.createElement('div');el.className='pm-note';
+  el.innerHTML=(R[card.t]||rSlack)(card);
+  if(L.i<0)el.firstChild.className+=' pm-hero-card';
+  scatter.appendChild(el);
+  var w=el.offsetWidth||270,h=el.offsetHeight||120;
+  el.style.left=Math.round(L.x*W-w/2)+'px';el.style.top=Math.round(L.y*H-h/2)+'px';
+  el.style.zIndex=L.i<0?40:5+k;el.style.setProperty('--r',L.r+'deg');
+  // opener first (th 0); the rest stagger in, all before the clear-out (~0.56)
+  items.push({el:el,th:L.i<0?0:0.10+((k-1)/(N-1))*0.40});
+ }
+}
+function frame(p){
+ for(var i=0;i<items.length;i++)items[i].el.classList.toggle('in',p>=items[i].th);
+ // sequenced, not crossfaded: the flood first COLLAPSES toward center and
+ // clears, THEN the headline rises in, so the two never overlap (no double
+ // exposure). small gap between the two ranges keeps them distinct.
+ // sequenced, tight hand-off: flood collapses + clears, then the headline
+ // rises in. The two ranges meet with only a hair of overlap, so there is no
+ // muddy double-exposure AND no blank frame in between; it is quicker than a
+ // wide crossfade but still eases rather than snaps.
+ var out=seg(p,0.56,0.72);
+ scatter.style.opacity=(1-out);scatter.style.transform='scale('+(1-0.32*out)+')';
+ var inn=seg(p,0.71,0.86);
+ resolve.style.opacity=inn;resolve.style.transform='translateY('+(24*(1-inn))+'px)';
+ // re-enable clicks once the headline has resolved (it starts pointer-events:none
+ // so the flood behind it isn't blocked); without this the CTAs never work
+ resolve.style.pointerEvents=inn>0.6?'auto':'none';
+ if(hint)hint.style.opacity=(1-seg(p,0.02,0.12));
+ // nav: hidden through the intro, slides in as the headline resolves, then
+ // hands control back to the nav's own scroll behavior past the scene.
+ window.__pmSceneLead=(p<0.985);
+ if(nav){if(p<0.74)nav.classList.add('pm-hidden');
+  else if(p<0.985)nav.classList.remove('pm-hidden');}
+ /* p>=0.985: stop touching the nav, hand control back to its own scroll logic */
+}
+var active=false,onScroll=null;
+function tick(){var total=wrap.offsetHeight-window.innerHeight;var top=-wrap.getBoundingClientRect().top;var s=Math.min(Math.max(top,0),total);frame(total>0?s/total:0);}
+function activate(){
+ if(active)return;
+ document.documentElement.classList.add('pm-scene');active=true;
+ try{
+  build();
+  requestAnimationFrame(function(){if(items[0])items[0].el.classList.add('in');});
+  onScroll=tick;window.addEventListener('scroll',onScroll,{passive:true});tick();
+ }catch(e){deactivate();}
+}
+function deactivate(){
+ if(onScroll){window.removeEventListener('scroll',onScroll);onScroll=null;}
+ document.documentElement.classList.remove('pm-scene');
+ scatter.innerHTML='';items=[];
+ resolve.style.opacity='';resolve.style.transform='';resolve.style.pointerEvents='';
+ scatter.style.opacity='';scatter.style.transform='';
+ window.__pmSceneLead=false;if(nav)nav.classList.remove('pm-hidden');
+ active=false;
+}
+// ---- #arrange: authoring mode. Freezes the flood, makes every card draggable
+// (pointer) and rotatable (scroll wheel over a card), and adds a "Copy layout"
+// button that exports each card's centre position (as a fraction of the stage)
+// + rotation. Never fires without the #arrange hash. ----
+function arrangeMode(){
+ var sp=document.getElementById('pm-splash');if(sp)sp.remove();
+ document.documentElement.classList.add('pm-scene','pm-arrange');
+ build();
+ for(var i=0;i<items.length;i++)items[i].el.classList.add('in');
+ scatter.style.opacity=1;scatter.style.transform='none';
+ var sel=null;
+ function pick(el){if(sel&&sel!==el)sel.classList.remove('pm-sel');sel=el;el.classList.add('pm-sel');}
+ // keyboard rotate for the selected card: [ / ] (or arrows), Shift = bigger step
+ window.addEventListener('keydown',function(e){
+  if(!sel)return;
+  var step=e.shiftKey?5:1,r=parseFloat(sel.style.getPropertyValue('--r'))||0;
+  if(e.key==='['||e.key===','||e.key==='ArrowLeft')r-=step;
+  else if(e.key===']'||e.key==='.'||e.key==='ArrowRight')r+=step;
+  else return;
+  e.preventDefault();sel.style.setProperty('--r',r.toFixed(1)+'deg');
+ });
+ [].forEach.call(scatter.querySelectorAll('.pm-note'),function(el){
+  // stop the browser's native image/text drag from hijacking the pointer
+  el.setAttribute('draggable','false');
+  el.addEventListener('dragstart',function(e){e.preventDefault();});
+  [].forEach.call(el.querySelectorAll('img'),function(im){im.setAttribute('draggable','false');});
+  el.addEventListener('pointerdown',function(e){e.preventDefault();e.stopPropagation();pick(el);
+   var sx=e.clientX,sy=e.clientY,ol=parseFloat(el.style.left)||0,ot=parseFloat(el.style.top)||0;
+   el.style.cursor='grabbing';document.body.style.cursor='grabbing';
+   function mv(ev){el.style.left=(ol+(ev.clientX-sx))+'px';el.style.top=(ot+(ev.clientY-sy))+'px';}
+   function up(){window.removeEventListener('pointermove',mv,true);window.removeEventListener('pointerup',up,true);
+    el.style.cursor='grab';document.body.style.cursor='';}
+   // track on WINDOW (capture) so the card keeps following even if the cursor
+   // outruns it — far more reliable than element-level listeners / setPointerCapture
+   window.addEventListener('pointermove',mv,true);window.addEventListener('pointerup',up,true);});
+  el.addEventListener('wheel',function(e){e.preventDefault();pick(el);
+   var r=parseFloat(el.style.getPropertyValue('--r'))||0;r+=(e.deltaY>0?1.5:-1.5);
+   el.style.setProperty('--r',r.toFixed(1)+'deg');},{passive:false});
+ });
+ var top=document.createElement('div');top.className='pm-arrange-top';
+ top.textContent='ARRANGE MODE — drag to move · click a card then press [ or ] to rotate (Shift = bigger) · or scroll over it';
+ document.body.appendChild(top);
+ var bar=document.createElement('div');bar.className='pm-arrange-bar';
+ bar.appendChild(document.createTextNode('Drag to move · scroll over a card to rotate'));
+ var b=document.createElement('button');b.textContent='Copy layout';
+ b.onclick=function(){
+  var W=stage.clientWidth,H=stage.clientHeight,out=[];
+  [].forEach.call(scatter.querySelectorAll('.pm-note'),function(el){
+   var l=parseFloat(el.style.left)||0,t=parseFloat(el.style.top)||0,w=el.offsetWidth,h=el.offsetHeight;
+   var r=parseFloat(el.style.getPropertyValue('--r'))||0;
+   var lab=(el.textContent||'').replace(/\s+/g,' ').trim().slice(0,46);
+   out.push({label:lab,xr:+((l+w/2)/W).toFixed(4),yr:+((t+h/2)/H).toFixed(4),r:+r.toFixed(1)});
+  });
+  var js=JSON.stringify(out);try{navigator.clipboard.writeText(js);}catch(_){}
+  console.log(js);b.textContent='Copied '+out.length+' cards';
+  setTimeout(function(){b.textContent='Copy layout';},1600);
+ };
+ bar.appendChild(b);document.body.appendChild(bar);
+}
+if(/arrange/.test(location.hash+location.search)){arrangeMode();return;}
+if(eligible())activate();
+var rt;
+window.addEventListener('resize',function(){clearTimeout(rt);rt=setTimeout(function(){
+ if(eligible()){if(!active)activate();else{build();tick();}}else if(active)deactivate();
+},200);});
+// toggling the #arrange hash on an already-loaded tab won't re-run this script,
+// so reload when the arrange state needs to change (ignored for #about-me etc.)
+window.addEventListener('hashchange',function(){
+ if(/arrange/.test(location.hash)!==document.documentElement.classList.contains('pm-arrange'))location.reload();
+});
+})();</script>"""
 
 # ---- hand-built footer (replaces the Framer footer component) --------------
 PM_SOCIAL = [
@@ -281,6 +637,33 @@ FOOTER_JS = ("<script>(function(){var el=document.querySelector('.pm-footer-cycl
              "var w=['design','build','create'],i=0;setInterval(function(){i=(i+1)%w.length;"
              "el.style.opacity='0';setTimeout(function(){el.textContent=w[i];el.style.opacity='1';},280);},2600);})();</script>")
 
+# Site-wide scroll reveal (progressive enhancement). Mirrors CS_REVEAL_JS:
+# bails on no-IntersectionObserver or reduced-motion, and only hides elements
+# that are BELOW the fold at load, so content is never gated on the transition
+# (no-JS / already-in-view / headless all render fully). Work cards stagger.
+REVEAL_JS = (
+    "<script>(function(){"
+    "if(!('IntersectionObserver' in window))return;"
+    "if(window.matchMedia&&matchMedia('(prefers-reduced-motion:reduce)').matches)return;"
+    "function run(){"
+    "var els=[].slice.call(document.querySelectorAll("
+    "'.pm-work-card,.ds-section-title,.pm-about-left,.pm-about-right,.work-head'));"
+    "if(!els.length)return;"
+    "var io=new IntersectionObserver(function(es){es.forEach(function(e){"
+    "if(e.isIntersecting){e.target.classList.add('is-in');io.unobserve(e.target);}});},"
+    "{rootMargin:'0px 0px -6% 0px',threshold:0.04});"
+    "els.forEach(function(el){"
+    "if(el.getBoundingClientRect().top>window.innerHeight*0.92){"
+    "el.classList.add('pm-reveal');"
+    "var p=el.parentElement;"
+    "if(p&&el.classList.contains('pm-work-card')){"
+    "var s=[].slice.call(p.children).filter(function(c){return c.classList.contains('pm-work-card');});"
+    "var i=s.indexOf(el);if(i>0)el.style.transitionDelay=Math.min(i*70,280)+'ms';}"
+    "io.observe(el);}});}"
+    "if(document.readyState!=='loading')run();"
+    "else document.addEventListener('DOMContentLoaded',run);"
+    "})();</script>")
+
 def build_footer(prefix):
     terms = prefix + "terms/"
     privacy = prefix + "privacy-policy/"
@@ -309,7 +692,7 @@ def build_footer(prefix):
         '<p class="pm-footer-copy">© 2026 Purvang Mehta</p>'
         '</div></div>'
         '<div class="pm-footer-mark" aria-hidden="true">PURVANG</div>'
-        '</footer>' + FOOTER_JS
+        '</footer>' + FOOTER_JS + REVEAL_JS
     )
 
 # ============================================================================
@@ -950,7 +1333,7 @@ def build_selected_work(prefix):
     return ('<section class="pm-work-sec" id="work"><div class="pm-work-wrap">'
             '<div class="pm-work-head"><h2 class="ds-section-title">Selected <span>work</span></h2>'
             f'<a class="pm-work-viewall" href="{prefix}projects/">View all'
-            '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" '
+            '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" '
             'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
             '<path d="M5 12h14M12 5l7 7-7 7"/></svg></a></div>'
             f'{build_work_grid(WORK_ORDER, prefix)}</div></section>')
@@ -996,7 +1379,7 @@ def build_about(prefix):
     return (
         '<section class="pm-home-sec" id="about-me"><div class="pm-home-wrap">'
         '<div class="pm-about">'
-        '<h2 class="pm-about-title ds-section-title">About <span>Me</span></h2>'
+        '<h2 class="pm-about-title ds-section-title">About <span>me</span></h2>'
         '<div class="pm-about-left">'
         f'<div class="pm-polaroid"><img src="{photo}" alt="Purvang Mehta"></div>'
         f'<div class="pm-about-facts">{facts_html}</div>'
@@ -1106,7 +1489,17 @@ def render_home(prefix, shell):
     body = (
         splash_html
         + build_nav(prefix)
-        + '<div id="pm-hero-wrap">' + build_hero(prefix) + build_ticker(prefix) + '</div>'
+        + '<div id="pm-hero-wrap"><div class="pm-hero-stage">'
+        + '<div class="pm-scatter" id="pm-scatter" aria-hidden="true"></div>'
+        + '<div class="pm-resolve" id="pm-resolve">'
+        + build_hero(prefix) + build_ticker(prefix)
+        + '</div>'
+        + '<div class="pm-scroll-hint" id="pm-scroll-hint" aria-hidden="true">'
+          '<span class="pm-scroll-lab">Scroll</span>'
+          '<span class="pm-scroll-mouse"><span></span></span></div>'
+        + f'<div class="pm-canvas-mark" aria-hidden="true">{LOGO_SVG}</div>'
+        + '</div></div>'
+        + HERO_SCENE_JS
         + '<main id="pm-main">'
         + build_selected_work(prefix)
         + build_about(prefix)
@@ -1115,7 +1508,7 @@ def render_home(prefix, shell):
         + '</main>'
         + build_footer(prefix) + WORKLIST_JS)
     head = slim_head(shell)
-    css = "<style>" + HERO_CSS + TICKER_CSS + "</style>" + splash_css
+    css = "<style>" + HERO_CSS + TICKER_CSS + HERO_SCENE_CSS + "</style>" + splash_css
     return "<!DOCTYPE html>" + head + css + "</head><body>" + body + "</body></html>"
 
 def render_404(prefix, shell):
@@ -2088,6 +2481,15 @@ with concurrent.futures.ThreadPoolExecutor(16) as ex:
         if r: errs.append(r)
 print(f"downloaded, {len(errs)} errors")
 for e in errs[:10]: print("  ERR", e)
+
+# hero-scene product logos: normalized icons live in the repo (hero-logos/);
+# mirror them into the deploy output so a fresh build ships them too.
+_hl_src = ROOT / "hero-logos"
+if _hl_src.is_dir():
+    _hl_out = OUT / "assets" / "hero"
+    _hl_out.mkdir(parents=True, exist_ok=True)
+    for _f in _hl_src.glob("*.webp"):
+        shutil.copy2(_f, _hl_out / _f.name)
 
 # pass 2: process + write pages
 for name, slug in PAGES.items():
