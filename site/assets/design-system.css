@@ -39,7 +39,6 @@
   --ds-accent-100:     rgb(224, 229, 252);  /* subtle fills                 */
   --ds-accent-50:      rgb(244, 246, 254);  /* tinted section backgrounds   */
   --ds-accent-alt:     rgb(28, 53, 236);    /* unified: one blue everywhere */
-  --ds-accent-on-dark: rgb(80, 101, 255);   /* brand blue lifted for dark bg (AA 4.65:1 on black) */
   --ds-link:           rgb(28, 53, 236);
 
   /* illustration palette: CONTENT ONLY (stickers, product mockups) —
@@ -439,7 +438,7 @@ section[data-framer-name="Big Quote Testimonial"] [data-framer-name^="Big Quote"
   box-shadow:0 18px 40px rgb(0 0 0/.14),0 2px 8px rgb(0 0 0/.06);
   transform:rotate(-3deg);width:min(330px,92%);margin:10px 0 44px 10px}
 .pm-polaroid img{width:100%;aspect-ratio:1/1;object-fit:cover;display:block;border-radius:2px}
-.pm-about-facts p{margin:0;color:var(--ds-ink);font:600 19px/1.8 var(--ds-font-sans)}
+.pm-about-facts p{margin:0;color:var(--ds-ink);font:500 19px/1.8 var(--ds-font-sans)}
 .pm-about-socslot{margin-top:32px}
 .pm-about-socslot>div{display:flex!important;flex-wrap:wrap;gap:8px;
   width:auto!important;height:auto!important;position:relative!important}
@@ -447,6 +446,7 @@ section[data-framer-name="Big Quote Testimonial"] [data-framer-name^="Big Quote"
 .pm-about-head{margin:0;color:var(--ds-ink);
   /* heading line-height: tight (1.18), not the loose 1.35 it had */
   font:600 clamp(24px,2.2vw,31px)/1.18 var(--ds-font-display);letter-spacing:-.01em}
+.pm-about-head .pm-em{color:var(--ds-accent)}
 .pm-about-lede{margin:22px 0 24px;color:var(--ds-ink-soft);
   /* body line-height: 1.55 (matches --ds-leading-base), was a loose 1.7 */
   font:400 18px/1.55 var(--ds-font-sans);max-width:62ch}
@@ -867,18 +867,34 @@ main.work{background:transparent;max-width:calc(var(--ds-container) + var(--ds-s
 .work-sub{margin:var(--ds-space-5) 0 0;max-width:52ch;color:var(--ds-ink-soft);
   font:400 var(--ds-text-lg)/1.55 var(--ds-font-sans)}
 .pm-work-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:var(--ds-space-12) var(--ds-space-8)}
-.pm-work-card{display:flex;flex-direction:column;gap:var(--ds-space-5);text-decoration:none}
+.pm-work-card{display:flex;flex-direction:column;gap:var(--ds-space-5);text-decoration:none;
+  transition:transform .3s var(--ds-ease)}
 .pm-work-thumb{display:block;overflow:hidden;aspect-ratio:16/10;background:var(--ds-paper);
-  border-radius:var(--ds-radius-lg);border:1px solid rgba(0,0,0,.07)}
+  border-radius:var(--ds-radius-lg);border:1px solid rgba(0,0,0,.15);
+  transition:border-color .3s var(--ds-ease)}
 .pm-work-thumb img{width:100%;height:100%;object-fit:cover;display:block;
   transition:transform .55s var(--ds-ease)}
-.pm-work-card:hover .pm-work-thumb img{transform:scale(1.03)}
-.pm-work-foot{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--ds-space-4)}
+.pm-work-foot{display:flex;align-items:center;justify-content:space-between;gap:var(--ds-space-4)}
 .pm-work-meta{display:flex;flex-direction:column;gap:4px;min-width:0}
-.pm-work-name{color:var(--ds-ink);font:600 var(--ds-text-xl)/1.2 var(--ds-font-sans);letter-spacing:-.01em}
-.pm-work-label{color:var(--ds-ink-soft);font:400 var(--ds-text-base)/1.45 var(--ds-font-sans)}
-.pm-work-arrow{flex:none;margin-top:4px;color:var(--ds-ink);transition:transform .3s var(--ds-ease)}
-.pm-work-card:hover .pm-work-arrow{transform:translate(3px,-3px);color:var(--ds-accent)}
+.pm-work-name{color:var(--ds-ink);font:600 var(--ds-text-xl)/1.2 var(--ds-font-sans);letter-spacing:-.01em;
+  transition:color .25s var(--ds-ease)}
+/* lighter, muted subtext (still AA-readable) */
+.pm-work-label{color:rgb(110,110,110);font:400 var(--ds-text-base)/1.45 var(--ds-font-sans)}
+/* arrow is now a circular CTA chip that fills with accent on hover */
+.pm-work-arrow{flex:none;width:42px;height:42px;border-radius:50%;background:transparent;
+  border:1px solid rgba(0,0,0,.16);color:var(--ds-ink);display:flex;align-items:center;justify-content:center;
+  transition:background .25s var(--ds-ease),border-color .25s var(--ds-ease),color .25s var(--ds-ease)}
+.pm-work-arrow svg{display:block;transition:transform .25s var(--ds-ease)}
+/* hover: only the thumbnail responds (shadow + darker border + image zoom);
+   name + arrow change colour in place. Nothing shifts position. */
+.pm-work-card:hover .pm-work-thumb{border-color:rgba(28,53,236,.35)}
+.pm-work-card:hover .pm-work-thumb img{transform:scale(1.04)}
+.pm-work-card:hover .pm-work-name{color:var(--ds-accent)}
+.pm-work-card:hover .pm-work-arrow{border-color:var(--ds-accent);color:var(--ds-accent)}
+@media (prefers-reduced-motion:reduce){
+  .pm-work-card,.pm-work-thumb,.pm-work-thumb img,.pm-work-arrow,.pm-work-arrow svg,.pm-work-name{transition:none}
+  .pm-work-card:hover{transform:none}
+  .pm-work-card:hover .pm-work-thumb img{transform:none}}
 @media (max-width:760px){
   main.work{padding:var(--ds-space-32) var(--ds-space-5) var(--ds-space-20)}
   .work-head{margin-bottom:var(--ds-space-12)}

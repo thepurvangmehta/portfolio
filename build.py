@@ -398,7 +398,7 @@ var CARDS=[
  {t:'jira',key:'BUG-994',sum:'Users can\'t find how to cancel their plan',prio:'Highest',stat:'In progress',when:'32m'},
  {t:'ga',metric:'-27%',desc:'week-4 retention vs last cohort',dir:'down',trend:'27% MoM',when:'1d'},
  {t:'app',stars:'★☆☆☆☆',title:'Does everything, explains nothing',body:'"Powerful, but I gave up before I saw the value."',by:'anaya.p · 5d ago',when:'5d'},
- {t:'clickup',task:'Fix step-3 signup form',stat:'Blocked',color:'#7b68ee',due:'due today',when:'1h'},
+ {t:'clickup',task:'Fix step-3 signup form',stat:'Blocked',color:'#e5484d',due:'due today',when:'1h'},
  {t:'slack',name:'Arjun',ch:'growth',when:'11:02',msg:'signups are up but revenue is flat, what gives?',react:'😬 5'},
  {t:'ga',metric:'3.1x',desc:'avg time to finish setup',dir:'up',trend:'up from 1.2x',when:'4h'},
  {t:'gmail',from:'Support lead',subj:'Refund requests are spiking',snip:'Two enterprise accounts churned this week, both said it was too hard to use.',when:'Tue'},
@@ -410,7 +410,7 @@ var CARDS=[
  {t:'gmail',from:'Head of Product',subj:'Trial-to-paid has stalled',snip:'We get the signups but almost nobody upgrades. What is blocking them?',when:'Wed'},
  {t:'app',stars:'★★★☆☆',title:'Good bones, rough edges',body:'"Great idea, but I keep getting lost in it."',by:'meera_s · 3d ago',when:'3d'},
  {t:'jira',key:'ONB-58',sum:'Users skip the setup wizard entirely',prio:'Medium',stat:'In progress',when:'5h'},
- {t:'clickup',task:'Rework the empty states',stat:'Blocked',color:'#7b68ee',due:'no owner',when:'Wed'},
+ {t:'clickup',task:'Rework the empty states',stat:'Blocked',color:'#e5484d',due:'no owner',when:'Wed'},
  {t:'ga',metric:'12%',desc:'feature adoption after 30 days',dir:'down',trend:'target was 40%',when:'1d'},
  {t:'slack',name:'Dev',ch:'support',when:'09:15',msg:'we are drowning in "how do I..." messages again',react:'😩 4'}
 ];
@@ -1316,9 +1316,10 @@ def build_work_card(slug, prefix):
         if img:
             thumb = (f'<img src="{img["src"]}" srcset="{img["srcset"]}" '
                      'sizes="(max-width:760px) 92vw, 46vw" alt="" loading="lazy" decoding="async">')
-    arrow = ('<svg class="pm-work-arrow" viewBox="0 0 24 24" width="18" height="18" fill="none" '
-             'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" '
-             'aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7"/></svg>')
+    arrow = ('<span class="pm-work-arrow" aria-hidden="true">'
+             '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" '
+             'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+             '<path d="M5 12h14M12 5l7 7-7 7"/></svg></span>')
     label = WORK_LABELS.get(slug, "")
     return (f'<a class="pm-work-card" href="{prefix}{slug}/">'
             f'<span class="pm-work-thumb">{thumb}</span>'
@@ -1389,8 +1390,8 @@ def build_about(prefix):
         f'<div class="pm-about-socslot"><div>{build_socrow(prefix)}</div></div>'
         '</div>'
         '<div class="pm-about-right">'
-        '<h3 class="pm-about-head">I didn’t start out in design.<br>'
-        'I just never left once I found it.</h3>'
+        '<h3 class="pm-about-head">I didn’t start out in <span class="pm-em">design.</span><br>'
+        'I just never left once I <span class="pm-em">found it.</span></h3>'
         '<p class="pm-about-lede">A few years in, I’ve shipped consumer and B2B '
         'products across healthcare, SaaS, and creator platforms. I do my best work when '
         'the design problem sits inside a business problem. Right now I’m deep into '
