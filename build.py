@@ -13,7 +13,7 @@ PAGES = {
     "404": "404",
 }
 
-SITE_URL = "https://www.thepurvangmehta.com"
+SITE_URL = "https://thepurvangmehta.com"  # apex (matches CNAME); www 301-redirects here
 CONTACT_EMAIL = "thepurvangmehta@gmail.com"
 # Password for NDA/gated case studies. Read from the environment ONLY, never
 # hardcoded, so it never lands in this (public) repo. Set it when building for
@@ -1526,7 +1526,9 @@ def render_404(prefix, shell):
         f'<a class="ds-btn ds-btn--primary pm-404-btn" href="{home}">Back home</a>'
         '</div></main>'
         + build_footer(prefix))
-    return "<!DOCTYPE html>" + slim_head(shell) + "</head><body>" + body + "</body></html>"
+    return ("<!DOCTYPE html>" + slim_head(shell)
+            + '<meta name="robots" content="noindex">'   # error page: keep out of the index
+            + "</head><body>" + body + "</body></html>")
 
 def build_hero(prefix):
     about = prefix + "#about-me"
@@ -2539,6 +2541,9 @@ for name, slug in PAGES.items():
     # encoding (literal U+2014, JS backslash-u2014 escape, HTML entities) to a comma.
     out = re.sub(r'\s*(?:' + chr(8212) + r'|\\u2014|&mdash;|&#8212;|&#x2014;)\s*', ', ', out, flags=re.I)
     out = re.sub(r'[ \t]+(?=\n)', '', out)
+    # canonicalize the domain: everything lives on the apex (www 301s to it),
+    # so normalize any stray www URL (e.g. legacy Framer og:image/twitter:image)
+    out = out.replace("www.thepurvangmehta.com", "thepurvangmehta.com")
     # GA4 intent events on every page (fires only if gtag is present)
     if "</body>" in out:
         out = out.replace("</body>", ANALYTICS_EVENTS_JS + "</body>", 1)
@@ -2553,11 +2558,12 @@ for name, slug in PAGES.items():
 (OUT / "CNAME").write_text("thepurvangmehta.com\n", encoding="utf-8")
 
 (OUT / "robots.txt").write_text(
-    "User-agent: *\nAllow: /\nSitemap: https://www.thepurvangmehta.com/sitemap.xml\n",
+    f"User-agent: *\nAllow: /\nSitemap: {SITE_URL}/sitemap.xml\n",
     encoding="utf-8")
 
+# sitemap: real, indexable pages only (exclude the 404 error page)
 sitemap_urls = "\n".join(
-    f"  <url><loc>{canonical_url(name)}</loc></url>" for name in PAGES
+    f"  <url><loc>{canonical_url(name)}</loc></url>" for name in PAGES if name != "404"
 )
 (OUT / "sitemap.xml").write_text(
     '<?xml version="1.0" encoding="UTF-8"?>\n'
