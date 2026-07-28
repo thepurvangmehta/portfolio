@@ -270,7 +270,7 @@ html.pm-scene .pm-hero .pm-hero-cta,html.pm-scene .pm-ticker{animation:none!impo
 .pm-card .pm-hd{display:flex;align-items:center;gap:8px;padding:11px 15px 0}
 .pm-card .pm-hd img{width:19px;height:19px;object-fit:contain;flex:none;display:block}
 .pm-card .pm-app{font-size:11.5px;font-weight:600;color:var(--ds-ink);letter-spacing:.01em}
-.pm-card .pm-when{margin-left:auto;font-size:11px;color:#9aa0aa;font-weight:500}
+.pm-card .pm-when{margin-left:auto;font-size:11px;color:#6b7280;font-weight:500}
 .pm-card .pm-bd{padding:8px 15px 15px}
 /* Slack */
 .pm-slack{width:340px;max-width:86vw}
@@ -627,6 +627,7 @@ FOOTER_CSS = """
 .pm-footer-mark{position:relative;z-index:0;text-align:center;margin:40px 0 -.14em;
   font-family:var(--ds-font-display,var(--ds-font-sans));font-weight:700;font-size:clamp(64px,20vw,300px);
   line-height:.82;letter-spacing:-.03em;color:rgba(0,0,0,.05);user-select:none;white-space:nowrap;pointer-events:none}
+.pm-footer-mark::after{content:"PURVANG"}
 @media (max-width:767.98px){
   .pm-footer{padding:56px 20px 0}
   .pm-footer-cta{margin-bottom:44px}
@@ -694,7 +695,7 @@ def build_footer(prefix):
         f'<a class="pm-footer-link" href="{privacy}">Privacy Policy</a></div></div>'
         '<p class="pm-footer-copy">© 2026 Purvang Mehta</p>'
         '</div></div>'
-        '<div class="pm-footer-mark" aria-hidden="true">PURVANG</div>'
+        '<div class="pm-footer-mark" aria-hidden="true"></div>'
         '</footer>' + FOOTER_JS + REVEAL_JS
     )
 
@@ -1317,7 +1318,7 @@ def build_work_card(slug, prefix):
         img = cs_image(m["thumb"], "", prefix, "pair")
         if img:
             thumb = (f'<img src="{img["src"]}" srcset="{img["srcset"]}" '
-                     'sizes="(max-width:760px) 92vw, 46vw" alt="" loading="lazy" decoding="async">')
+                     f'sizes="(max-width:760px) 92vw, 46vw" alt="{_esc(m["name"])} case study preview" loading="lazy" decoding="async">')
     arrow = ('<span class="pm-work-arrow" aria-hidden="true">'
              '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" '
              'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
@@ -1495,7 +1496,7 @@ def render_home(prefix, shell):
     body = (
         splash_html
         + build_nav(prefix)
-        + '<div id="pm-hero-wrap"><div class="pm-hero-stage">'
+        + '<div id="pm-hero-wrap" role="region" aria-label="Introduction"><div class="pm-hero-stage">'
         + '<div class="pm-scatter" id="pm-scatter" aria-hidden="true"></div>'
         + '<div class="pm-resolve" id="pm-resolve">'
         + build_hero(prefix) + build_ticker(prefix)
@@ -1779,6 +1780,54 @@ def apply_seo(html, name):
     )
     return html.replace("</head>", block + "\n</head>", 1)
 
+# Injected on every page: mobile touch-target sizing (>=44px) for tappable
+# controls (WCAG 2.5.5). Icon-only controls also get min-width.
+A11Y_CSS = ('<style>@media (max-width:767.98px){'
+            '.pm-nav-links a,.pm-footer a,.pm-work-viewall,.cs-toc a{'
+            'min-height:44px;display:inline-flex;align-items:center}'
+            '.pm-nav-toggle,.pm-footer-social a,.cs-soc{'
+            'min-width:44px;min-height:44px}}</style>')
+
+def build_json_ld(name, data, gated):
+    """Structured data (schema.org JSON-LD). Person + WebSite on home,
+    CreativeWork + breadcrumbs on case studies, CollectionPage on /projects/,
+    WebPage on legal. Skipped for 404 and NDA-gated (noindex) pages."""
+    if name == "404" or name in gated:
+        return ""
+    url = canonical_url(name)
+    img = SITE_URL + "/assets/images/gTQRvhQAXXzQ2wcQ1sgjfpCPj8.png"
+    person = {"@type": "Person", "@id": SITE_URL + "/#person", "name": "Purvang Mehta",
+              "url": SITE_URL + "/", "jobTitle": "Product Designer",
+              "image": img, "sameAs": [t[1] for t in PM_SOCIAL]}
+
+    def crumb(items):
+        return {"@type": "BreadcrumbList", "itemListElement": [
+            {"@type": "ListItem", "position": i + 1, "name": n, "item": u}
+            for i, (n, u) in enumerate(items)]}
+
+    if name == "index":
+        graph = [{"@type": "WebSite", "@id": SITE_URL + "/#website",
+                  "url": SITE_URL + "/", "name": "Purvang Mehta"},
+                 dict(person, description=META["index"]["description"])]
+    elif name == "projects":
+        graph = [{"@type": "CollectionPage", "url": url, "name": META["projects"]["title"],
+                  "description": META["projects"]["description"],
+                  "isPartOf": {"@id": SITE_URL + "/#website"}},
+                 crumb([("Home", SITE_URL + "/"), ("Projects", url)]), person]
+    elif data and data.get("kind") == "legal":
+        graph = [{"@type": "WebPage", "url": url, "name": META[name]["title"],
+                  "description": META[name]["description"]},
+                 crumb([("Home", SITE_URL + "/"), (META[name]["title"], url)])]
+    else:  # public case study
+        graph = [{"@type": "CreativeWork", "@id": url + "#work", "url": url,
+                  "name": META[name]["title"], "description": META[name]["description"],
+                  "author": {"@id": SITE_URL + "/#person"},
+                  "creator": {"@id": SITE_URL + "/#person"}},
+                 crumb([("Home", SITE_URL + "/"), ("Projects", SITE_URL + "/projects/"),
+                        (META[name]["title"], url)]), person]
+    doc = {"@context": "https://schema.org", "@graph": graph}
+    return '<script type="application/ld+json">' + json.dumps(doc, ensure_ascii=False) + '</script>'
+
 def download(url, rel):
     dest = OUT / rel
     if dest.exists():
@@ -1831,6 +1880,7 @@ def process(name, html):
     # ---- remove Framer meta/editor traces ----
     html = re.sub(r'<meta[^>]*name="generator"[^>]*>', "", html)
     html = re.sub(r'<meta[^>]*name="framer-search-index[^"]*"[^>]*>', "", html)
+    html = re.sub(r'<meta[^>]*name="framer-html-plugin"[^>]*>', "", html)
     html = re.sub(r'\s*data-framer-ssr-released-at="[^"]*"', "", html)
 
     # ---- rewrite asset urls to local (handles &amp; in srcset) ----
@@ -2522,6 +2572,7 @@ if _hl_src.is_dir():
 gated_pages = set()   # NDA-gated slugs: excluded from sitemap (only show a password wall)
 for name, slug in PAGES.items():
     _cf = ROOT / "content" / f"{name}.json"
+    _data = None
     if name == "index":
         # fully static, deframered home; reuse the processed shell's <head> only
         out = render_home("", process(name, srcs[name]))
@@ -2552,6 +2603,8 @@ for name, slug in PAGES.items():
     # GA4 intent events on every page (fires only if gtag is present)
     if "</body>" in out:
         out = out.replace("</body>", ANALYTICS_EVENTS_JS + "</body>", 1)
+    # structured data + mobile touch-target CSS (injected last, after all rewrites)
+    out = out.replace("</head>", build_json_ld(name, _data, gated_pages) + A11Y_CSS + "</head>", 1)
     dest = OUT / ("index.html" if name == "index" else f"{slug}/index.html")
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(out, encoding="utf-8")
