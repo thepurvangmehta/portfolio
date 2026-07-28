@@ -1243,6 +1243,8 @@ def render_case_study(data, prefix, shell):
     nav = build_nav(prefix)
     footer = build_footer(prefix)
     head = slim_head(shell)
+    # NDA-gated pages show only a password wall to crawlers -> keep them out of the index
+    noindex = '<meta name="robots" content="noindex">' if data.get("gated") else ""
     cs_css = f'<link rel="stylesheet" href="{prefix}assets/case-study.css">'
     if data.get("gated"):
         # Encrypt the whole content region; ship only ciphertext. The image
@@ -1261,7 +1263,7 @@ def render_case_study(data, prefix, shell):
                 "window.pmCsReel&&pmCsReel();window.pmCsMedia&&pmCsMedia();</script>")
         body = (f'{nav}<main class="cs">{content_html}</main>{footer}'
                 f'{toc}{CS_REVEAL_JS}{CS_REEL_JS}{CS_MEDIA_JS}{call}')
-    return ("<!DOCTYPE html>" + head + cs_css + "</head><body>"
+    return ("<!DOCTYPE html>" + head + noindex + cs_css + "</head><body>"
             + body + "</body></html>")
 
 
@@ -2517,6 +2519,7 @@ if _hl_src.is_dir():
         shutil.copy2(_f, _hl_out / _f.name)
 
 # pass 2: process + write pages
+gated_pages = set()   # NDA-gated slugs: excluded from sitemap (only show a password wall)
 for name, slug in PAGES.items():
     _cf = ROOT / "content" / f"{name}.json"
     if name == "index":
@@ -2531,6 +2534,8 @@ for name, slug in PAGES.items():
         # content-driven case study: reuse the processed shell's <head>, render body from data
         _shell = process(name, srcs[name])
         _data = json.load(open(_cf, encoding="utf-8"))
+        if _data.get("gated"):
+            gated_pages.add(name)
         if _data.get("kind") == "legal":
             out = render_legal(_data, "../", _shell)
         else:
@@ -2561,9 +2566,11 @@ for name, slug in PAGES.items():
     f"User-agent: *\nAllow: /\nSitemap: {SITE_URL}/sitemap.xml\n",
     encoding="utf-8")
 
-# sitemap: real, indexable pages only (exclude the 404 error page)
+# sitemap: real, indexable pages only (exclude the 404 error page and NDA-gated
+# case studies, which only ever show a password wall to crawlers)
 sitemap_urls = "\n".join(
-    f"  <url><loc>{canonical_url(name)}</loc></url>" for name in PAGES if name != "404"
+    f"  <url><loc>{canonical_url(name)}</loc></url>"
+    for name in PAGES if name != "404" and name not in gated_pages
 )
 (OUT / "sitemap.xml").write_text(
     '<?xml version="1.0" encoding="UTF-8"?>\n'
