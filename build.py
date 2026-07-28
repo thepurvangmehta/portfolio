@@ -2612,6 +2612,59 @@ for name, slug in PAGES.items():
     leftover = re.findall(r'framerusercontent\.com|events\.framer\.com|unpkg\.com', out)
     print(f"{dest.relative_to(ROOT)}  {len(out)//1024}KB  leftover-refs={len(leftover)}")
 
+# ---- performance: convert large referenced PNG/JPEG to WebP, rewrite <img> refs
+# Only touches <img> src/srcset (never og:image, favicons, or CSS url()). Keeps
+# originals on disk. WebP files are cached, so conversion runs once per image.
+try:
+    from PIL import Image as _PILImage
+except Exception:
+    _PILImage = None
+
+if _PILImage:
+    _img_tag = re.compile(r'<img\b[^>]*>', re.I)
+    _raster = re.compile(r'(assets/[^"\'\s]+?\.(?:png|jpe?g))', re.I)
+    _html_files = list(OUT.rglob("*.html"))
+    _per_file, _referenced = {}, set()
+    for _hf in _html_files:
+        _t = _hf.read_text(encoding="utf-8")
+        _urls = {u for tag in _img_tag.findall(_t) for u in _raster.findall(tag)}
+        _per_file[_hf] = (_t, _urls)
+        _referenced |= _urls
+    _remap, _saved = {}, 0
+    for _rel in sorted(_referenced):
+        _src = OUT / _rel
+        if not _src.exists() or _src.stat().st_size < 120 * 1024:  # skip missing/small
+            continue
+        _webp_rel = re.sub(r'\.(png|jpe?g)$', '.webp', _rel, flags=re.I)
+        _webp = OUT / _webp_rel
+        _orig = _src.stat().st_size
+        if not _webp.exists():
+            try:
+                _im = _PILImage.open(_src)
+                if _im.mode in ("P", "LA"):
+                    _im = _im.convert("RGBA")
+                _im.save(_webp, "WEBP", quality=82, method=6)
+            except Exception as _e:
+                print(f"  IMG WARN {_rel}: {_e}")
+                continue
+        if _webp.stat().st_size < _orig * 0.9:       # only if >=10% smaller
+            _remap[_rel] = _webp_rel
+            _saved += _orig - _webp.stat().st_size
+        elif _webp.exists():
+            _webp.unlink()                            # not worth it; don't clutter
+    if _remap:
+        def _swap(m):
+            tag = m.group(0)
+            for _o, _n in _remap.items():
+                tag = tag.replace(_o, _n)
+            return tag
+        for _hf, (_t, _urls) in _per_file.items():
+            if _urls & set(_remap):
+                _hf.write_text(_img_tag.sub(_swap, _t), encoding="utf-8")
+    print(f">> image opt: {len(_remap)} images -> webp, saved ~{_saved // 1024}KB")
+else:
+    print(">> image opt: Pillow not available, skipped")
+
 # custom domain for GitHub Pages (published into the deploy artifact)
 (OUT / "CNAME").write_text("thepurvangmehta.com\n", encoding="utf-8")
 
