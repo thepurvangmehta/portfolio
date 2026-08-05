@@ -38,7 +38,20 @@ if [ -z "${CS_GATE_PW:-}" ]; then
   echo
 fi
 export CS_GATE_PW
-echo ">> build";            CS_GATE_PW="${CS_GATE_PW:-}" python3 build.py >/dev/null
+
+# URL of the case-study access-request Worker (worker/README.md). Not a
+# secret -- it's a public URL -- so it's just cached in a local file so you
+# don't have to paste it every deploy. Blank = old password-only gate.
+if [ -z "${CS_ACCESS_API_URL:-}" ] && [ -f .access_api_url ]; then
+  CS_ACCESS_API_URL="$(cat .access_api_url)"
+fi
+if [ -z "${CS_ACCESS_API_URL:-}" ]; then
+  read -rp "CS_ACCESS_API_URL (Worker URL for email-request access, blank = password-only gate): " CS_ACCESS_API_URL
+  [ -n "$CS_ACCESS_API_URL" ] && echo "$CS_ACCESS_API_URL" > .access_api_url
+fi
+export CS_ACCESS_API_URL
+
+echo ">> build";            CS_GATE_PW="${CS_GATE_PW:-}" CS_ACCESS_API_URL="${CS_ACCESS_API_URL:-}" python3 build.py >/dev/null
 echo ">> stage + commit";   $GIT add -A
 $GIT commit -m "$MSG" -m "Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>" \
   || { echo "   (nothing to commit — deploying current HEAD)"; }
