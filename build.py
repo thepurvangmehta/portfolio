@@ -19,6 +19,10 @@ CONTACT_EMAIL = "thepurvangmehta@gmail.com"
 # hardcoded, so it never lands in this (public) repo. Set it when building for
 # deploy:  CS_GATE_PW='your-password' python3 build.py  (deploy.sh prompts).
 CS_GATE_PW = (os.environ.get("CS_GATE_PW") or "").strip() or None
+# Base URL of the case-study access-request Worker (see worker/README.md).
+# Unset -> the email-request UI is omitted and the gate falls back to
+# password-only, so builds keep working before the Worker is deployed.
+CS_ACCESS_API_URL = (os.environ.get("CS_ACCESS_API_URL") or "").strip().rstrip("/") or None
 RESUME_URL = "https://drive.google.com/file/d/1i2vT2GYwkOnyoGzwG4zNUabKpk-ayuYX/view?usp=sharing"
 
 # ---- hand-built nav (replaces the Framer-exported nav entirely) ----------
@@ -986,6 +990,75 @@ CS_GATE_JS = (
     ".catch(function(){btn.disabled=false;e.hidden=false;i.value='';i.focus();});});"
     "setTimeout(function(){i.focus();},60);})();</script>")
 
+# Email-request path: lets a visitor ask for access instead of typing a
+# password. Talks to the Worker in worker/src/index.js. Only emitted when
+# CS_ACCESS_API_URL is set at build time (see _cs_gate). On approval the
+# Worker hands back the gate password, and this reuses the exact same
+# crypto.subtle derive+decrypt path as the manual-password form above.
+def _cs_gate_access_js(api_url):
+    api = json.dumps(api_url)
+    return (
+        "<script>(function(){"
+        f"var API={api};"
+        "var g=document.getElementById('pm-cs-gate'),b=document.getElementById('pm-cs-blob'),"
+        "doc=document.getElementById('pm-cs-doc');"
+        "if(!g||!b||!doc)return;"
+        "var blob=JSON.parse(b.textContent);"
+        "var af=document.getElementById('pm-cs-access-form'),"
+        "ai=af&&af.querySelector('input'),ab=af&&af.querySelector('button'),"
+        "st=document.getElementById('pm-cs-access-status');"
+        "if(!af||!st)return;"
+        "var slug=(document.getElementById('pm-cs-doc')||{}).getAttribute&&"
+        "document.getElementById('pm-cs-doc').getAttribute('data-slug')||location.pathname;"
+        "var LS_EMAIL='pmCsEmail',LS_REQ='pmCsReq:'+slug;"
+        "function u8(s){var n=atob(s),a=new Uint8Array(n.length);"
+        "for(var k=0;k<n.length;k++)a[k]=n.charCodeAt(k);return a;}"
+        "function decryptWith(password){"
+        "return crypto.subtle.importKey('raw',new TextEncoder().encode(password),{name:'PBKDF2'},false,['deriveKey'])"
+        ".then(function(bk){return crypto.subtle.deriveKey("
+        "{name:'PBKDF2',salt:u8(blob.salt),iterations:blob.iters,hash:'SHA-256'},"
+        "bk,{name:'AES-GCM',length:256},false,['decrypt']);})"
+        ".then(function(key){return crypto.subtle.decrypt("
+        "{name:'AES-GCM',iv:u8(blob.iv)},key,u8(blob.data));})"
+        ".then(function(buf){doc.innerHTML=new TextDecoder().decode(buf);"
+        "g.remove();document.documentElement.style.overflow='';"
+        "if(window.pmCsToc)window.pmCsToc();if(window.pmCsReveal)window.pmCsReveal();"
+        "if(window.pmCsReel)window.pmCsReel();if(window.pmCsMedia)window.pmCsMedia();});}"
+        "function setStatus(msg,hidden){st.hidden=!!hidden;st.textContent=msg||'';}"
+        "var pollTimer=null;"
+        "function stopPoll(){if(pollTimer){clearTimeout(pollTimer);pollTimer=null;}}"
+        "function poll(requestId){"
+        "fetch(API+'/check-access?requestId='+encodeURIComponent(requestId)).then(function(r){return r.json();})"
+        ".then(function(d){"
+        "if(d.status==='approved'){stopPoll();localStorage.removeItem(LS_REQ);"
+        "setStatus('Approved! Unlocking…');decryptWith(d.secret);}"
+        "else if(d.status==='denied'){stopPoll();localStorage.removeItem(LS_REQ);"
+        "setStatus('Access request was denied.');ab.disabled=false;}"
+        "else if(d.status==='expired'){stopPoll();localStorage.removeItem(LS_REQ);"
+        "setStatus('Request expired. Try again.');ab.disabled=false;}"
+        "else{pollTimer=setTimeout(function(){poll(requestId);},5000);}"
+        "}).catch(function(){pollTimer=setTimeout(function(){poll(requestId);},8000);});}"
+        "af.addEventListener('submit',function(ev){ev.preventDefault();"
+        "var email=ai.value.trim();if(!email)return;"
+        "ab.disabled=true;setStatus('Requesting access…',false);"
+        "localStorage.setItem(LS_EMAIL,email);"
+        "fetch(API+'/request-access',{method:'POST',headers:{'content-type':'application/json'},"
+        "body:JSON.stringify({email:email})}).then(function(r){return r.json();})"
+        ".then(function(d){"
+        "if(d.status==='approved'){setStatus('Approved! Unlocking…');decryptWith(d.secret);}"
+        "else if(d.status==='pending'){localStorage.setItem(LS_REQ,d.requestId);"
+        "setStatus('Request sent — waiting for approval…',false);poll(d.requestId);}"
+        "else{ab.disabled=false;setStatus('Something went wrong. Try again.');}"
+        "}).catch(function(){ab.disabled=false;setStatus('Something went wrong. Try again.');});});"
+        "var savedReq=localStorage.getItem(LS_REQ);"
+        "var savedEmail=localStorage.getItem(LS_EMAIL);"
+        "if(savedReq){ai.value=savedEmail||'';ab.disabled=true;"
+        "setStatus('Waiting for approval…',false);poll(savedReq);}"
+        "else if(savedEmail){ai.value=savedEmail;"
+        "fetch(API+'/check-email?email='+encodeURIComponent(savedEmail)).then(function(r){return r.json();})"
+        ".then(function(d){if(d.status==='approved'){setStatus('Approved! Unlocking…');decryptWith(d.secret);}});}"
+        "})();</script>")
+
 CS_NICE_NAMES = {
     "turfly": "Turfly", "healthcare": "Healthcare platform",
     "communication-saas": "Communication SaaS", "nda": "Private project",
@@ -1090,6 +1163,21 @@ def _cs_gate(data, prefix=""):
     Sits below the nav (so the site stays navigable) and offers an explicit
     way back to the work index plus an email-for-access path."""
     work = prefix + "projects/"
+    access_block = ""
+    if CS_ACCESS_API_URL:
+        access_block = (
+            '<div class="cs-gate-divider"><span>or</span></div>'
+            '<form class="cs-gate-access-form" id="pm-cs-access-form">'
+            '<input type="email" class="cs-gate-input" placeholder="you@company.com" '
+            'aria-label="Email" autocomplete="email" required>'
+            '<button type="submit" class="ds-btn ds-btn--secondary cs-gate-btn">Request access</button>'
+            '</form><p class="cs-gate-access-status" id="pm-cs-access-status" hidden></p>'
+        )
+        sub = ('<p class="cs-gate-sub">Enter the password to view it, or request access below — '
+               "I'll get a notification and you'll be unlocked as soon as I approve it.</p>")
+    else:
+        sub = ('<p class="cs-gate-sub">Enter the password to view it, or '
+               f'<a href="mailto:{CONTACT_EMAIL}?subject=Case%20study%20access">email me for access</a>.</p>')
     return ('<div id="pm-cs-gate" class="cs-gate"><div class="cs-gate-card">'
             f'<a class="cs-gate-back" href="{work}">'
             '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" '
@@ -1100,12 +1188,12 @@ def _cs_gate(data, prefix=""):
             'aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/>'
             '<path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>'
             '<h1 class="cs-gate-title">This case study is under NDA</h1>'
-            '<p class="cs-gate-sub">Enter the password to view it, or '
-            f'<a href="mailto:{CONTACT_EMAIL}?subject=Case%20study%20access">email me for access</a>.</p>'
+            f'{sub}'
             '<form class="cs-gate-form"><input type="password" class="cs-gate-input" '
             'placeholder="Enter password" aria-label="Password" autocomplete="off">'
             '<button type="submit" class="ds-btn ds-btn--primary cs-gate-btn">Continue</button>'
             '<p class="cs-gate-err" hidden>Incorrect password. Try again.</p></form>'
+            f'{access_block}'
             '</div></div>')
 
 def _cs_slug(text):
@@ -1256,9 +1344,11 @@ def render_case_study(data, prefix, shell):
                   "shipping locked, UNREADABLE content. Set CS_GATE_PW to make it viewable.")
             pw = base64.b64encode(os.urandom(24)).decode()  # throwaway: never plaintext, undecryptable
         blob = json.dumps(_cs_encrypt(content_html, pw)).replace("</", "<\\/")
-        body = (f'{nav}{_cs_gate(data, prefix)}<main class="cs" id="pm-cs-doc"></main>'
+        access_js = _cs_gate_access_js(CS_ACCESS_API_URL) if CS_ACCESS_API_URL else ""
+        slug_attr = _esc(data.get("slug") or "")
+        body = (f'{nav}{_cs_gate(data, prefix)}<main class="cs" id="pm-cs-doc" data-slug="{slug_attr}"></main>'
                 f'<script type="application/json" id="pm-cs-blob">{blob}</script>'
-                f'{footer}{toc}{CS_REVEAL_JS}{CS_REEL_JS}{CS_MEDIA_JS}{CS_GATE_JS}')
+                f'{footer}{toc}{CS_REVEAL_JS}{CS_REEL_JS}{CS_MEDIA_JS}{CS_GATE_JS}{access_js}')
     else:
         call = ("<script>window.pmCsToc&&pmCsToc();window.pmCsReveal&&pmCsReveal();"
                 "window.pmCsReel&&pmCsReel();window.pmCsMedia&&pmCsMedia();</script>")
