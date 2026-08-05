@@ -326,6 +326,13 @@ main.cs > .cs-more{width:100vw;margin-left:calc(50% - 50vw)}
 .cs-gate-input:focus{outline:2px solid var(--ds-accent);outline-offset:0;border-color:var(--ds-accent)}
 .cs-gate-btn{width:100%;justify-content:center}
 .cs-gate-err{margin:var(--ds-space-3) 0 0;color:var(--ds-negative);font:500 var(--ds-text-sm)/1 var(--ds-font-sans)}
+.cs-gate-divider{display:flex;align-items:center;gap:var(--ds-space-3);
+  margin:var(--ds-space-5,20px) 0;color:var(--ds-ink-soft);
+  font:500 var(--ds-text-sm)/1 var(--ds-font-sans)}
+.cs-gate-divider::before,.cs-gate-divider::after{content:"";flex:1;height:1px;background:var(--ds-border)}
+.cs-gate-access-form{margin:0}
+.cs-gate-access-status{margin:var(--ds-space-3) 0 0;color:var(--ds-ink-soft);
+  font:500 var(--ds-text-sm)/1 var(--ds-font-sans)}
 
 /* ---- mobile ----------------------------------------------- */
 @media (max-width:767.98px){
