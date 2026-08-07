@@ -1396,6 +1396,21 @@ def slim_head(shell):
         head += "<style>" + "".join(faces) + "</style>"
     return head
 
+def _cs_prev_blob(slug):
+    """(ciphertext, content-hash) from the last build of this gated page, or
+    (None, None). Lets a UI-only rebuild keep content encrypted under a
+    password this process was never given."""
+    p = OUT / (slug or "") / "index.html"
+    if not slug or not p.exists():
+        return None, None
+    prev = p.read_text(encoding="utf-8")
+    m = re.search(
+        r'<script type="application/json" id="pm-cs-blob"(?:\s+data-content-hash="([0-9a-f]*)")?\s*>(.*?)</script>',
+        prev, re.S)
+    if not m:
+        return None, None
+    return m.group(2), (m.group(1) or None)
+
 def render_case_study(data, prefix, shell):
     """Compose a full case-study document from content data, reusing the
     processed shell's <head> (fonts, GA, SEO, design-system, footer CSS).
@@ -1453,16 +1468,40 @@ def render_case_study(data, prefix, shell):
     if data.get("gated"):
         # Encrypt the whole content region; ship only ciphertext. The image
         # URLs live inside the ciphertext too, so they are not discoverable.
-        pw = CS_GATE_PW
-        if not pw:
-            print(f"  CS WARN: '{data.get('slug')}' is gated but CS_GATE_PW is unset; "
-                  "shipping locked, UNREADABLE content. Set CS_GATE_PW to make it viewable.")
-            pw = base64.b64encode(os.urandom(24)).decode()  # throwaway: never plaintext, undecryptable
-        blob = json.dumps(_cs_encrypt(content_html, pw)).replace("</", "<\\/")
+        slug = data.get("slug") or ""
+        chash = hashlib.sha256(content_html.encode("utf-8")).hexdigest()[:16]
+        blob = None
+        if CS_GATE_PW:
+            blob = json.dumps(_cs_encrypt(content_html, CS_GATE_PW)).replace("</", "<\\/")
+        else:
+            # No password to hand. Rather than shipping a page nobody can ever
+            # open, keep the ciphertext from the previous build -- it is still
+            # valid for whatever password produced it. This is what lets a
+            # gate/layout change be rebuilt without the secret. The embedded
+            # content hash (of the plaintext, which is long-form prose and so
+            # not guessable) is only there to catch the dangerous case: the
+            # content changed but cannot be re-encrypted.
+            blob, prev_hash = _cs_prev_blob(slug)
+            if blob is None:
+                print(f"  CS WARN: '{slug}' is gated, CS_GATE_PW is unset and no previous "
+                      "ciphertext exists; shipping UNREADABLE content.")
+                blob = json.dumps(_cs_encrypt(content_html, base64.b64encode(os.urandom(24)).decode()))
+                blob = blob.replace("</", "<\\/")
+            elif prev_hash is None:
+                # Built by a build.py from before the hash existed, so there is
+                # nothing to compare against. Not a change, just unverifiable.
+                print(f"  CS: '{slug}' reusing existing ciphertext (no CS_GATE_PW; previous "
+                      "build recorded no content hash, so 'unchanged' can't be verified here)")
+            elif prev_hash != chash:
+                print(f"  CS WARN: '{slug}' content CHANGED but CS_GATE_PW is unset, so it "
+                      "cannot be re-encrypted. Keeping the OLD ciphertext -- the published "
+                      "page will show the previous content. Rebuild with CS_GATE_PW set.")
+            else:
+                print(f"  CS: '{slug}' reusing existing ciphertext (content unchanged, no CS_GATE_PW)")
         access_js = _cs_gate_access_js(CS_ACCESS_API_URL) if CS_ACCESS_API_URL else ""
-        slug_attr = _esc(data.get("slug") or "")
+        slug_attr = _esc(slug)
         body = (f'{nav}{_cs_gate(data, prefix)}<main class="cs" id="pm-cs-doc" data-slug="{slug_attr}"></main>'
-                f'<script type="application/json" id="pm-cs-blob">{blob}</script>'
+                f'<script type="application/json" id="pm-cs-blob" data-content-hash="{chash}">{blob}</script>'
                 f'{footer}{toc}{CS_REVEAL_JS}{CS_REEL_JS}{CS_MEDIA_JS}{CS_GATE_JS}{access_js}')
     else:
         call = ("<script>window.pmCsToc&&pmCsToc();window.pmCsReveal&&pmCsReveal();"
