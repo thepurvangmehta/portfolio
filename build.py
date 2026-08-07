@@ -1062,7 +1062,7 @@ def _cs_gate_access_js(api_url):
         ".then(function(r){return r.json();})"
         ".then(function(d){inFlight=false;"
         "if(d.status==='approved'){stopPoll();localStorage.removeItem(LS_REQ);"
-        "setStatus('Approved! Unlocking…');decryptWith(d.secret);}"
+        "unlockWith(d.secret,'Approved! Unlocking…');}"
         "else if(d.status==='denied'){stopPoll();localStorage.removeItem(LS_REQ);"
         "setStatus('Access request was denied.');ab.disabled=false;}"
         "else if(d.status==='expired'){stopPoll();localStorage.removeItem(LS_REQ);"
@@ -1075,25 +1075,39 @@ def _cs_gate_access_js(api_url):
         "document.addEventListener('visibilitychange',function(){"
         "if(!document.hidden)pollNow();});"
         "window.addEventListener('focus',pollNow);"
+        # A failed decrypt here means the Worker's GATE_PASSWORD and the
+        # build's CS_GATE_PW have drifted apart. Without this catch the
+        # visitor sits on "Unlocking..." forever with no way out.
+        "function unlockWith(secret,msg){setStatus(msg||'Unlocking…',false);"
+        "return decryptWith(secret).catch(function(){ab.disabled=false;"
+        "setStatus('Approved, but this page could not be unlocked. Please let me know.');});}"
         "af.addEventListener('submit',function(ev){ev.preventDefault();"
         "var email=ai.value.trim();if(!email)return;"
-        "ab.disabled=true;setStatus('Requesting access…',false);"
+        # Submitting supersedes any request still being polled -- the visitor
+        # may well have come back to change the address.
+        "stopPoll();localStorage.removeItem(LS_REQ);"
+        "ab.disabled=true;setStatus('Checking…',false);"
         "localStorage.setItem(LS_EMAIL,email);"
         "fetch(API+'/request-access',{method:'POST',headers:{'content-type':'application/json'},"
         "body:JSON.stringify({email:email})}).then(function(r){return r.json();})"
         ".then(function(d){"
-        "if(d.status==='approved'){setStatus('Approved! Unlocking…');decryptWith(d.secret);}"
+        "if(d.status==='approved'){unlockWith(d.secret);}"
         "else if(d.status==='pending'){localStorage.setItem(LS_REQ,d.requestId);"
         "setStatus('Request sent — waiting for approval…',false);startPoll(d.requestId);}"
+        "else if(d.error==='rate_limited'){ab.disabled=false;"
+        "setStatus('Too many requests just now. Please try again later.');}"
+        "else if(d.error==='invalid_email'){ab.disabled=false;"
+        "setStatus('That email address does not look right.');}"
         "else{ab.disabled=false;setStatus('Something went wrong. Try again.');}"
         "}).catch(function(){ab.disabled=false;setStatus('Something went wrong. Try again.');});});"
+        # On load the gate is ALWAYS shown, even for an address that has
+        # already been approved. The last-used email is prefilled purely as a
+        # convenience -- entering is an explicit act, and the address stays
+        # editable so a different one can be used.
         "var savedReq=localStorage.getItem(LS_REQ);"
         "var savedEmail=localStorage.getItem(LS_EMAIL);"
-        "if(savedReq){ai.value=savedEmail||'';ab.disabled=true;"
-        "setStatus('Waiting for approval…',false);startPoll(savedReq);}"
-        "else if(savedEmail){ai.value=savedEmail;"
-        "fetch(API+'/check-email?email='+encodeURIComponent(savedEmail)).then(function(r){return r.json();})"
-        ".then(function(d){if(d.status==='approved'){setStatus('Approved! Unlocking…');decryptWith(d.secret);}});}"
+        "if(savedEmail)ai.value=savedEmail;"
+        "if(savedReq){setStatus('Waiting for approval…',false);startPoll(savedReq);}"
         "})();</script>")
 
 CS_NICE_NAMES = {
