@@ -2767,7 +2767,8 @@ else:
 (OUT / "CNAME").write_text("thepurvangmehta.com\n", encoding="utf-8")
 
 (OUT / "robots.txt").write_text(
-    f"User-agent: *\nAllow: /\nSitemap: {SITE_URL}/sitemap.xml\n",
+    f"User-agent: *\nAllow: /\nSitemap: {SITE_URL}/sitemap.xml\n"
+    f"Content-Signal: ai-train=no, search=yes, ai-input=yes\n",
     encoding="utf-8")
 
 # sitemap: real, indexable pages only (exclude the 404 error page, NDA-gated
