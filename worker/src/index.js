@@ -166,7 +166,17 @@ export default {
     const origin = env.ALLOWED_ORIGIN;
 
     if (req.method === "OPTIONS") {
-      return json({}, 204, origin);
+      // 204 responses must not have a body -- returning one throws inside
+      // Cloudflare's Response constructor, which surfaces as a 500 on the
+      // CORS preflight and fails every request before it even goes out.
+      return new Response(null, {
+        status: 204,
+        headers: {
+          "access-control-allow-origin": origin || "*",
+          "access-control-allow-methods": "GET,POST,OPTIONS",
+          "access-control-allow-headers": "content-type",
+        },
+      });
     }
 
     if (url.pathname === "/request-access" && req.method === "POST") {
