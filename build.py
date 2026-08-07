@@ -2636,8 +2636,14 @@ ANALYTICS_EVENTS_JS = ("<script>(function(){"
 
 # pass 1: collect assets across all pages
 srcs = {}
+missing_srcs = set()
 for name in PAGES:
-    srcs[name] = open(ROOT / f"src_{name}.html", encoding="utf-8").read()
+    src_path = ROOT / f"src_{name}.html"
+    if not src_path.exists():
+        missing_srcs.add(name)
+        print(f"  BUILD WARN: src_{name}.html is missing; leaving {PAGES[name]}/ untouched this build")
+        continue
+    srcs[name] = src_path.read_text(encoding="utf-8")
     collect(srcs[name])
 print(f"{len(url_map)} unique assets to download")
 
@@ -2661,6 +2667,8 @@ if _hl_src.is_dir():
 # pass 2: process + write pages
 gated_pages = set()   # NDA-gated slugs: excluded from sitemap (only show a password wall)
 for name, slug in PAGES.items():
+    if name in missing_srcs:
+        continue
     _cf = ROOT / "content" / f"{name}.json"
     _data = None
     if name == "index":
