@@ -2770,11 +2770,13 @@ else:
     f"User-agent: *\nAllow: /\nSitemap: {SITE_URL}/sitemap.xml\n",
     encoding="utf-8")
 
-# sitemap: real, indexable pages only (exclude the 404 error page and NDA-gated
-# case studies, which only ever show a password wall to crawlers)
+# sitemap: real, indexable pages only (exclude the 404 error page, NDA-gated
+# case studies which only ever show a password wall to crawlers, and pages
+# skipped this build for a missing source -- their frozen output keeps
+# whatever noindex/gated status it already had, so don't newly list them)
 sitemap_urls = "\n".join(
     f"  <url><loc>{canonical_url(name)}</loc></url>"
-    for name in PAGES if name != "404" and name not in gated_pages
+    for name in PAGES if name != "404" and name not in gated_pages and name not in missing_srcs
 )
 (OUT / "sitemap.xml").write_text(
     '<?xml version="1.0" encoding="UTF-8"?>\n'
