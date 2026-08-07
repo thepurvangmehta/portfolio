@@ -960,6 +960,23 @@ def _cs_encrypt(plaintext, password):
     return {"salt": b64(salt), "iv": b64(iv), "data": b64(ct + tag),
             "iters": CS_GATE_PBKDF2_ITERS}
 
+# content/<slug>.json for a gated case study is gitignored -- it's the only
+# copy of the real case-study source, and it must never land in this public
+# repo as plaintext. But that also means it lives ONLY on the author's
+# machine, with no backup, ever. Losing that one file (as happened once
+# already) means reconstructing an entire case study from old exports and
+# screenshots. So every build re-encrypts the current content JSON with the
+# same gate password and commits THAT (ciphertext, safe to be public) to
+# content/.backups/. Recover a lost source file with decrypt_backup.py.
+def _cs_backup_source(name, data):
+    if not CS_GATE_PW:
+        return
+    outdir = ROOT / "content" / ".backups"
+    outdir.mkdir(parents=True, exist_ok=True)
+    blob = _cs_encrypt(json.dumps(data, indent=1, ensure_ascii=False), CS_GATE_PW)
+    (outdir / f"{name}.json.enc").write_text(
+        json.dumps(blob, indent=1) + "\n", encoding="utf-8")
+
 # In-browser gate: derive the key from the typed password via Web Crypto and
 # decrypt the embedded blob. No password or plaintext is present in the page;
 # a wrong password simply fails to decrypt (GCM auth), so there is nothing to
@@ -2685,6 +2702,7 @@ for name, slug in PAGES.items():
         _data = json.load(open(_cf, encoding="utf-8"))
         if _data.get("gated"):
             gated_pages.add(name)
+            _cs_backup_source(name, _data)
         if _data.get("kind") == "legal":
             out = render_legal(_data, "../", _shell)
         else:

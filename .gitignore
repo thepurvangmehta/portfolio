@@ -6,5 +6,13 @@ __pycache__/
 .access_api_url
 
 # NDA / gated case-study SOURCE (plaintext) must never be committed to this
-# public repo while gated:true. Currently ungated (temporary), so tracked
-# normally -- re-add here if these go back to gated:true.
+# public repo. The built site ships only AES-encrypted ciphertext, and an
+# encrypted backup of the content JSON itself lives in content/.backups/
+# (see decrypt_backup.py) -- that's the recovery path if these are ever
+# lost again, NOT committing the plaintext here.
+content/healthcare.json
+content/communication-saas.json
+# Legacy Framer source for the gated page (also plaintext). Read locally at
+# build time for the page <head>, but must not be committed to this public repo.
+src_healthcare.html
+src_communication-saas.html
