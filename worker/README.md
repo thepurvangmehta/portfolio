@@ -1,63 +1,75 @@
 # Case-study access-request Worker
 
-Backs the "request access" flow on gated case studies: a visitor submits
+Backs the "request access" option on gated case studies: a visitor submits
 their email, you get a push notification with Approve/Deny, and approval is
-global — that email can open every gated case study from then on.
+global, one tap unlocks every gated case study for that address from then on.
 
-The gate itself is unchanged (AES-256-GCM, decrypted client-side); this
-Worker only decides who is handed the gate password.
+The gate itself is unchanged (AES-256-GCM, decrypted in the browser); this
+Worker only decides who gets handed the gate password.
 
-## One-time setup
+## Why D1 and not KV
 
-1. **Install wrangler** (if you don't have it): `npm install -g wrangler`
-2. **Log in**: `wrangler login`
-3. **Create the KV namespace**:
-   ```
-   wrangler kv:namespace create CS_ACCESS
-   ```
-   Copy the returned `id` into `wrangler.toml` (`REPLACE_WITH_KV_NAMESPACE_ID`).
-4. **Set secrets** (from `worker/`):
-   ```
-   wrangler secret put GATE_PASSWORD   # must exactly match CS_GATE_PW used by build.py
-   wrangler secret put PUSHOVER_TOKEN  # Pushover application token
-   wrangler secret put PUSHOVER_USER   # Pushover user/group key
-   ```
-5. **Set `ALLOWED_ORIGIN`** in `wrangler.toml` to your live site origin
-   (already set to `https://thepurvangmehta.com`).
-6. **Deploy**: `wrangler deploy`
-7. Note the deployed Worker URL (e.g. `https://case-study-access.<subdomain>.workers.dev`).
+The first version stored state in Workers KV and felt broken: approvals took
+30-60 seconds to show up. KV edge-caches reads for a **minimum of 60 seconds,
+including cache misses**, so the browser polling "approved yet?" kept being
+served a stale "not yet" long after the approval had actually been written.
+
+D1 is strongly consistent, so an approval is visible on the very next poll.
+Measured end to end: ~800ms when the tab is focused, under 150ms when you
+approve on your phone and switch back (the page re-checks on regaining focus).
+
+**Do not move this state back to KV.** Polling for a flag to flip is exactly
+the workload KV's caching model is wrong for.
+
+## Setup
+
+1. **Create the database.** Cloudflare dashboard, Storage & Databases, D1,
+   Create database, name it `cs-access`.
+2. **Bind it.** Worker, Settings, Bindings, add a **D1 database** binding with
+   variable name `DB` pointing at `cs-access`. The variable name must be
+   exactly `DB`.
+3. **Set secrets** (Settings, Variables, tick Encrypt on all three):
+   - `GATE_PASSWORD` - must exactly match `CS_GATE_PW` used by `build.py`
+   - `PUSHOVER_TOKEN` - Pushover application token
+   - `PUSHOVER_USER` - Pushover user/group key
+4. **Set the plain var** `ALLOWED_ORIGIN` to `https://thepurvangmehta.com`.
+5. **Deploy** the code in `src/index.js` (paste it into the dashboard editor,
+   or `wrangler deploy` from this directory).
+
+Tables are created automatically on first request, there is no migration step.
+
+Check it worked by visiting `https://<your-worker>.workers.dev/health`, which
+should return `{"ok":true,"storage":"d1",...}`. If `DB` is missing you get a
+`503 misconfigured` with a message saying so, rather than a mystery 500.
 
 ## Wiring it into the site build
 
-Set `CS_ACCESS_API_URL` to the Worker URL when building, alongside `CS_GATE_PW`:
+Set `CS_ACCESS_API_URL` alongside `CS_GATE_PW` when building. `deploy.sh`
+prompts for it once and caches it in `.access_api_url`.
 
-```
-CS_GATE_PW='your-password' CS_ACCESS_API_URL='https://case-study-access.<subdomain>.workers.dev' python3 build.py
-```
+If `CS_ACCESS_API_URL` is unset the build falls back to a password-only gate
+with no email-request UI, which is the safe default if the Worker is ever
+taken down.
 
-If `CS_ACCESS_API_URL` is unset, the build falls back to the password-only
-gate (no email-request UI is rendered) — safe default before the Worker
-exists or if it's ever taken down.
+## Endpoints
 
-`GATE_PASSWORD` (the Worker secret) and `CS_GATE_PW` (the build-time env var)
-**must be the same string** — the Worker hands this password back to
-approved browsers, which then run the exact same client-side decrypt path
-as someone who typed it manually.
+| Route | Purpose |
+|---|---|
+| `POST /request-access` | `{email}` -> `{status:"pending",requestId}` or `{status:"approved",secret}` |
+| `GET /check-access?requestId=` | poll target: `pending` / `approved` / `denied` / `expired` |
+| `GET /check-email?email=` | has this address already been approved |
+| `GET /approve?token=` | the Approve link in the push notification |
+| `GET /deny?token=` | the Deny link |
+| `GET /health` | binding sanity check |
 
-## Pushover setup
+## Operational notes
 
-1. Create a free account at pushover.net, install the app on your phone.
-2. Create an "Application/API Token" in the Pushover dashboard — that's `PUSHOVER_TOKEN`.
-3. Your user key (shown on the Pushover dashboard homepage) is `PUSHOVER_USER`.
-4. One-time ~$5 purchase for the mobile app (Pushover's own pricing, not Cloudflare's).
-
-## Notes / operational tradeoffs
-
-- **Global + permanent grant.** Approving one email grants access to every
-  gated case study, forever. There's no revoke UI yet — to revoke, delete
-  the `approved:<email>` key from KV manually (`wrangler kv:key delete
-  --namespace-id=<id> "approved:someone@example.com"`).
-- **Rate limits**: 20 requests/hour per IP, 5/hour per email address, to
-  keep this from becoming a notification-spam vector. Tune in `src/index.js`.
-- **No CI/CD wired up** — redeploy manually with `wrangler deploy` after any
-  change to `src/index.js`.
+- **Approval is global and permanent.** To revoke:
+  `wrangler d1 execute cs-access --command "DELETE FROM approved WHERE email='someone@example.com'"`
+- **Rate limits**: 20 requests/hour per IP, 5/hour per email address, counted
+  in SQL against the `requests` table. Tune the constants in `src/index.js`.
+- **Housekeeping** is piggybacked onto approve/deny: rows older than 7 days are
+  deleted, so no cron job is needed.
+- **Tests**: the handler logic is covered end to end against real SQLite via
+  `node:sqlite`, including the CORS-preflight regression that once broke the
+  whole flow. Re-run those before changing this file.

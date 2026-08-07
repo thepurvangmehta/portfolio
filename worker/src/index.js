@@ -2,39 +2,57 @@
 //
 // Flow:
 //   1. Visitor POSTs their email to /request-access.
-//   2. If that email is already globally approved, the gate password ships
-//      back immediately and the browser decrypts as usual.
-//   3. Otherwise a pending request is stored in KV and a Pushover
-//      notification is sent with Approve/Deny links.
-//   4. The browser polls /check-access until the request is approved,
-//      denied, or expires (24h).
-//   5. Tapping Approve/Deny in the notification hits /approve or /deny,
-//      which resolves the pending request. Approval is global and
-//      permanent — that email can access every gated case study from then on.
+//   2. If that email is already approved, the gate password ships back
+//      immediately and the browser decrypts as usual.
+//   3. Otherwise a pending request is stored and a Pushover notification
+//      is sent with Approve/Deny links.
+//   4. The browser polls /check-access until the request resolves.
+//   5. Tapping Approve/Deny hits /approve or /deny. Approval is global and
+//      permanent: that email can open every gated case study from then on.
 //
-// Required secrets (wrangler secret put <name>):
+// Storage is D1, NOT KV, on purpose. KV reads are edge-cached for at least
+// 60 seconds -- including cache misses -- so a browser polling "approved
+// yet?" keeps being served the stale "not yet" for up to a minute after the
+// approval actually happened. That made approvals feel 30-60s slow. D1 is
+// strongly consistent, so an approval is visible on the very next poll.
+//
+// Bindings (dashboard -> Worker -> Settings -> Bindings):
+//   DB         - D1 database  (required)
+//   CS_ACCESS  - KV namespace (optional; only read, to honour approvals
+//                created by the older KV-backed version of this Worker)
+// Secrets (dashboard -> Settings -> Variables, "Encrypt"):
 //   GATE_PASSWORD   - must match CS_GATE_PW used by build.py
 //   PUSHOVER_TOKEN  - Pushover application token
 //   PUSHOVER_USER   - Pushover user/group key
-// Required vars (wrangler.toml [vars]):
-//   ALLOWED_ORIGIN  - the site origin allowed to call /request-access via fetch
+// Plain var:
+//   ALLOWED_ORIGIN  - site origin allowed to call this Worker via fetch
 
-const PENDING_TTL = 60 * 60 * 24; // 24h
-const DECISION_TTL = 60 * 60; // 1h to let a slow poller catch the result
-const RATE_LIMIT_WINDOW = 60 * 60; // 1h
-const RATE_LIMIT_MAX_PER_IP = 20;
-const RATE_LIMIT_MAX_PER_EMAIL = 5;
+const PENDING_TTL_MS = 24 * 60 * 60 * 1000;   // a request goes stale after 24h
+const PURGE_AFTER_MS = 7 * 24 * 60 * 60 * 1000; // rows deleted after 7 days
+const RATE_WINDOW_MS = 60 * 60 * 1000;
+const RATE_MAX_PER_IP = 20;
+const RATE_MAX_PER_EMAIL = 5;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function corsHeaders(origin) {
+  return {
+    "access-control-allow-origin": origin || "*",
+    "access-control-allow-methods": "GET,POST,OPTIONS",
+    "access-control-allow-headers": "content-type",
+  };
+}
 
 function json(data, status = 200, origin) {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
       "content-type": "application/json",
-      "access-control-allow-origin": origin || "*",
-      "access-control-allow-methods": "GET,POST,OPTIONS",
-      "access-control-allow-headers": "content-type",
+      // Poll responses must never be cached by the browser or by any hop in
+      // between -- a cached "pending" would reintroduce the exact staleness
+      // this Worker was rewritten to remove.
+      "cache-control": "no-store",
+      ...corsHeaders(origin),
     },
   });
 }
@@ -42,22 +60,72 @@ function json(data, status = 200, origin) {
 function html(body, status = 200) {
   return new Response(
     `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">
-    <style>body{font:16px/1.5 -apple-system,system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1.25rem;color:#111}</style>
-    ${body}`,
-    { status, headers: { "content-type": "text/html; charset=utf-8" } }
+    <style>body{font:16px/1.6 -apple-system,system-ui,sans-serif;max-width:32rem;
+    margin:4rem auto;padding:0 1.25rem;color:#111}h1{font-size:1.4rem;margin:0 0 .5rem}
+    p{color:#555;margin:0}</style>${body}`,
+    { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } }
   );
 }
 
-async function rateLimited(env, key, max) {
-  const cur = parseInt((await env.CS_ACCESS.get(key)) || "0", 10);
-  if (cur >= max) return true;
-  await env.CS_ACCESS.put(key, String(cur + 1), { expirationTtl: RATE_LIMIT_WINDOW });
+// Runs once per isolate, not once per request.
+let schemaReady = false;
+async function ensureSchema(env) {
+  if (schemaReady) return;
+  await env.DB.batch([
+    env.DB.prepare(
+      `CREATE TABLE IF NOT EXISTS requests (
+         id TEXT PRIMARY KEY,
+         email TEXT NOT NULL,
+         status TEXT NOT NULL,
+         ip TEXT,
+         created_at INTEGER NOT NULL,
+         decided_at INTEGER
+       )`
+    ),
+    env.DB.prepare(
+      `CREATE TABLE IF NOT EXISTS approved (
+         email TEXT PRIMARY KEY,
+         created_at INTEGER NOT NULL
+       )`
+    ),
+    env.DB.prepare(
+      `CREATE INDEX IF NOT EXISTS idx_requests_email ON requests(email, created_at)`
+    ),
+    env.DB.prepare(
+      `CREATE INDEX IF NOT EXISTS idx_requests_ip ON requests(ip, created_at)`
+    ),
+  ]);
+  schemaReady = true;
+}
+
+async function isApproved(env, email) {
+  const row = await env.DB.prepare("SELECT 1 AS ok FROM approved WHERE email = ?1")
+    .bind(email).first();
+  if (row) return true;
+  // Legacy: approvals granted by the older KV-backed Worker. Read once, then
+  // copy into D1 so this fallback stops being hit for that address.
+  if (env.CS_ACCESS) {
+    const legacy = await env.CS_ACCESS.get(`approved:${email}`);
+    if (legacy) {
+      await env.DB.prepare(
+        "INSERT OR IGNORE INTO approved (email, created_at) VALUES (?1, ?2)"
+      ).bind(email, Date.now()).run();
+      return true;
+    }
+  }
   return false;
 }
 
-async function sendPushover(env, origin, email, requestId) {
-  const approveUrl = `${origin}/approve?token=${requestId}`;
-  const denyUrl = `${origin}/deny?token=${requestId}`;
+async function countSince(env, column, value, since) {
+  const row = await env.DB.prepare(
+    `SELECT COUNT(*) AS n FROM requests WHERE ${column} = ?1 AND created_at > ?2`
+  ).bind(value, since).first();
+  return row ? row.n : 0;
+}
+
+async function sendPushover(env, selfOrigin, email, requestId) {
+  const approveUrl = `${selfOrigin}/approve?token=${requestId}`;
+  const denyUrl = `${selfOrigin}/deny?token=${requestId}`;
   const body = new URLSearchParams({
     token: env.PUSHOVER_TOKEN,
     user: env.PUSHOVER_USER,
@@ -89,75 +157,88 @@ async function handleRequestAccess(req, env) {
     return json({ error: "invalid_email" }, 400, origin);
   }
 
-  const ip = req.headers.get("CF-Connecting-IP") || "unknown";
-  if (await rateLimited(env, `rl:ip:${ip}`, RATE_LIMIT_MAX_PER_IP)) {
-    return json({ error: "rate_limited" }, 429, origin);
-  }
-  if (await rateLimited(env, `rl:email:${email}`, RATE_LIMIT_MAX_PER_EMAIL)) {
-    return json({ error: "rate_limited" }, 429, origin);
-  }
-
-  const already = await env.CS_ACCESS.get(`approved:${email}`);
-  if (already) {
+  if (await isApproved(env, email)) {
     return json({ status: "approved", secret: env.GATE_PASSWORD }, 200, origin);
   }
 
+  const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+  const since = Date.now() - RATE_WINDOW_MS;
+  if (await countSince(env, "ip", ip, since) >= RATE_MAX_PER_IP) {
+    return json({ error: "rate_limited" }, 429, origin);
+  }
+  if (await countSince(env, "email", email, since) >= RATE_MAX_PER_EMAIL) {
+    return json({ error: "rate_limited" }, 429, origin);
+  }
+
   const requestId = crypto.randomUUID();
-  await env.CS_ACCESS.put(
-    `pending:${requestId}`,
-    JSON.stringify({ email, createdAt: Date.now() }),
-    { expirationTtl: PENDING_TTL }
-  );
+  await env.DB.prepare(
+    "INSERT INTO requests (id, email, status, ip, created_at) VALUES (?1, ?2, 'pending', ?3, ?4)"
+  ).bind(requestId, email, ip, Date.now()).run();
 
-  const selfOrigin = new URL(req.url).origin;
-  await sendPushover(env, selfOrigin, email, requestId);
-
+  await sendPushover(env, new URL(req.url).origin, email, requestId);
   return json({ status: "pending", requestId }, 200, origin);
 }
 
 async function handleCheckAccess(req, env) {
   const origin = env.ALLOWED_ORIGIN;
   const requestId = new URL(req.url).searchParams.get("requestId") || "";
-  const decision = await env.CS_ACCESS.get(`decision:${requestId}`);
-  if (decision) {
-    const d = JSON.parse(decision);
-    if (d.status === "approved") {
-      return json({ status: "approved", secret: env.GATE_PASSWORD }, 200, origin);
-    }
-    return json({ status: "denied" }, 200, origin);
+  const row = await env.DB.prepare(
+    "SELECT status, created_at FROM requests WHERE id = ?1"
+  ).bind(requestId).first();
+
+  if (!row) return json({ status: "expired" }, 200, origin);
+  if (row.status === "approved") {
+    return json({ status: "approved", secret: env.GATE_PASSWORD }, 200, origin);
   }
-  const pending = await env.CS_ACCESS.get(`pending:${requestId}`);
-  if (pending) return json({ status: "pending" }, 200, origin);
-  return json({ status: "expired" }, 200, origin);
+  if (row.status === "denied") return json({ status: "denied" }, 200, origin);
+  if (Date.now() - row.created_at > PENDING_TTL_MS) {
+    return json({ status: "expired" }, 200, origin);
+  }
+  return json({ status: "pending" }, 200, origin);
 }
 
 async function handleCheckEmail(req, env) {
   const origin = env.ALLOWED_ORIGIN;
   const email = (new URL(req.url).searchParams.get("email") || "").trim().toLowerCase();
   if (!EMAIL_RE.test(email)) return json({ status: "none" }, 200, origin);
-  const approved = await env.CS_ACCESS.get(`approved:${email}`);
-  if (approved) return json({ status: "approved", secret: env.GATE_PASSWORD }, 200, origin);
+  if (await isApproved(env, email)) {
+    return json({ status: "approved", secret: env.GATE_PASSWORD }, 200, origin);
+  }
   return json({ status: "none" }, 200, origin);
 }
 
-async function handleDecision(req, env, decisionStatus) {
+async function handleDecision(req, env, decision) {
   const token = new URL(req.url).searchParams.get("token") || "";
-  const pendingRaw = await env.CS_ACCESS.get(`pending:${token}`);
-  if (!pendingRaw) {
-    return html(`<h1>Already handled</h1><p>This request has expired or was already resolved.</p>`, 410);
+  const row = await env.DB.prepare(
+    "SELECT email, status FROM requests WHERE id = ?1"
+  ).bind(token).first();
+
+  if (!row) {
+    return html(`<h1>Nothing to do</h1><p>This request has expired or was already cleaned up.</p>`, 410);
   }
-  const { email } = JSON.parse(pendingRaw);
-  await env.CS_ACCESS.delete(`pending:${token}`);
-  await env.CS_ACCESS.put(
-    `decision:${token}`,
-    JSON.stringify({ status: decisionStatus }),
-    { expirationTtl: DECISION_TTL }
-  );
-  if (decisionStatus === "approved") {
-    await env.CS_ACCESS.put(`approved:${email}`, "1");
-    return html(`<h1>Approved</h1><p><b>${email}</b> can now access every gated case study.</p>`);
+  if (row.status !== "pending") {
+    return html(`<h1>Already ${row.status}</h1><p><b>${row.email}</b> was already ${row.status}.</p>`, 409);
   }
-  return html(`<h1>Denied</h1><p>Request from <b>${email}</b> was denied.</p>`);
+
+  const now = Date.now();
+  const writes = [
+    env.DB.prepare("UPDATE requests SET status = ?1, decided_at = ?2 WHERE id = ?3")
+      .bind(decision, now, token),
+    // Housekeeping, piggybacked on a rare request so it never needs a cron.
+    env.DB.prepare("DELETE FROM requests WHERE created_at < ?1").bind(now - PURGE_AFTER_MS),
+  ];
+  if (decision === "approved") {
+    writes.push(
+      env.DB.prepare("INSERT OR IGNORE INTO approved (email, created_at) VALUES (?1, ?2)")
+        .bind(row.email, now)
+    );
+  }
+  await env.DB.batch(writes);
+
+  if (decision === "approved") {
+    return html(`<h1>Approved</h1><p><b>${row.email}</b> can now open every gated case study. Their browser unlocks within a second.</p>`);
+  }
+  return html(`<h1>Denied</h1><p>Request from <b>${row.email}</b> was denied.</p>`);
 }
 
 export default {
@@ -166,33 +247,40 @@ export default {
     const origin = env.ALLOWED_ORIGIN;
 
     if (req.method === "OPTIONS") {
-      // 204 responses must not have a body -- returning one throws inside
-      // Cloudflare's Response constructor, which surfaces as a 500 on the
-      // CORS preflight and fails every request before it even goes out.
-      return new Response(null, {
-        status: 204,
-        headers: {
-          "access-control-allow-origin": origin || "*",
-          "access-control-allow-methods": "GET,POST,OPTIONS",
-          "access-control-allow-headers": "content-type",
-        },
-      });
+      // A 204 must not carry a body: constructing one with a body throws,
+      // which surfaces as a 500 on the CORS preflight and kills every request.
+      return new Response(null, { status: 204, headers: corsHeaders(origin) });
     }
 
-    if (url.pathname === "/request-access" && req.method === "POST") {
-      return handleRequestAccess(req, env);
+    // Surfaces a missing/misnamed binding as a clear message instead of a
+    // mystery 500 the next person has to reverse-engineer.
+    if (!env.DB) {
+      return json({ error: "misconfigured", detail: "D1 binding 'DB' is not set on this Worker" }, 503, origin);
     }
-    if (url.pathname === "/check-access" && req.method === "GET") {
-      return handleCheckAccess(req, env);
+
+    if (url.pathname === "/health") {
+      return json({ ok: true, storage: "d1", legacyKv: !!env.CS_ACCESS }, 200, origin);
     }
-    if (url.pathname === "/check-email" && req.method === "GET") {
-      return handleCheckEmail(req, env);
-    }
-    if (url.pathname === "/approve" && req.method === "GET") {
-      return handleDecision(req, env, "approved");
-    }
-    if (url.pathname === "/deny" && req.method === "GET") {
-      return handleDecision(req, env, "denied");
+
+    try {
+      await ensureSchema(env);
+      if (url.pathname === "/request-access" && req.method === "POST") {
+        return await handleRequestAccess(req, env);
+      }
+      if (url.pathname === "/check-access" && req.method === "GET") {
+        return await handleCheckAccess(req, env);
+      }
+      if (url.pathname === "/check-email" && req.method === "GET") {
+        return await handleCheckEmail(req, env);
+      }
+      if (url.pathname === "/approve" && req.method === "GET") {
+        return await handleDecision(req, env, "approved");
+      }
+      if (url.pathname === "/deny" && req.method === "GET") {
+        return await handleDecision(req, env, "denied");
+      }
+    } catch (err) {
+      return json({ error: "server_error", detail: String(err && err.message || err) }, 500, origin);
     }
     return new Response("Not found", { status: 404 });
   },

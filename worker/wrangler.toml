@@ -2,9 +2,19 @@ name = "case-study-access"
 main = "src/index.js"
 compatibility_date = "2024-11-01"
 
-kv_namespaces = [
-  { binding = "CS_ACCESS", id = "REPLACE_WITH_KV_NAMESPACE_ID" }
-]
+# Strongly consistent storage. Deliberately NOT KV: KV edge-caches reads for
+# at least 60s (misses included), so "has this been approved yet?" polling
+# kept seeing a stale "no" long after the approval landed.
+[[d1_databases]]
+binding = "DB"
+database_name = "cs-access"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+# Optional and read-only: honours approvals granted by the older KV-backed
+# version of this Worker. Safe to delete once nobody's relying on those.
+# kv_namespaces = [
+#   { binding = "CS_ACCESS", id = "REPLACE_WITH_KV_NAMESPACE_ID" }
+# ]
 
 [vars]
 ALLOWED_ORIGIN = "https://thepurvangmehta.com"
