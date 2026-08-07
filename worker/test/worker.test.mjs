@@ -18,6 +18,7 @@ function makeStmt(sql, params = []) {
       return col === undefined ? row : row[col];
     },
     async run() { return db.prepare(sql).run(...params); },
+    async all() { return { results: db.prepare(sql).all(...params) }; },
     _exec() { return db.prepare(sql).run(...params); },
   };
 }
@@ -38,6 +39,7 @@ const env = {
   PUSHOVER_TOKEN: 'ptoken',
   PUSHOVER_USER: 'puser',
   ALLOWED_ORIGIN: 'https://thepurvangmehta.com',
+  ADMIN_KEY: 'super-secret-admin-key',
 };
 
 const BASE = 'https://case-study-access.example.workers.dev';
@@ -203,6 +205,67 @@ console.log('\n== stale pending request expires ==');
     .run(Date.now() - 25 * 60 * 60 * 1000, j.requestId);
   const p = await (await call(`/check-access?requestId=${j.requestId}`)).json();
   check('24h-old pending reads as expired', p.status === 'expired', p);
+}
+
+console.log('\n== admin page is locked down ==');
+{
+  const noKey = await call('/admin');
+  check('no key -> 404', noKey.status === 404, noKey.status);
+  const wrong = await call('/admin?key=nope');
+  check('wrong key -> 404', wrong.status === 404, wrong.status);
+  const unset = await worker.fetch(new Request(BASE + '/admin?key=x'), { ...env, ADMIN_KEY: undefined });
+  check('no ADMIN_KEY configured -> 503', unset.status === 503, unset.status);
+  const body = await noKey.text();
+  check('404 page leaks no addresses', !/jane@acme\.com/.test(body));
+}
+
+console.log('\n== admin page lists the collected emails ==');
+{
+  const r = await call('/admin?key=super-secret-admin-key');
+  const body = await r.text();
+  check('200', r.status === 200, r.status);
+  check('noindex header', r.headers.get('x-robots-tag') === 'noindex');
+  check('shows a known contact', body.includes('jane@acme.com'));
+  check('shows the denied contact too', body.includes('spam@x.com'));
+  check('has a pending section', /Waiting for approval/.test(body));
+  check('has a copy-all box', /<textarea/.test(body));
+  check('links the CSV', /\/admin\/emails\.csv/.test(body));
+}
+
+console.log('\n== an email containing HTML cannot inject (stored XSS) ==');
+{
+  const nasty = '<img/src=x/onerror=alert(1)>@evil.co';
+  check('regex would have accepted it', /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nasty));
+  const rq = await postJson('/request-access', { email: nasty }, { 'CF-Connecting-IP': '9.9.9.9' });
+  const j = await rq.json();
+  check('accepted as a request', j.status === 'pending', j);
+
+  const adminBody = await (await call('/admin?key=super-secret-admin-key')).text();
+  check('admin page escapes it', !adminBody.includes('<img/src=x'), 'raw tag present');
+  check('admin page shows it escaped', adminBody.includes('&lt;img/src=x'), 'not escaped');
+
+  const decided = await call(`/approve?token=${j.requestId}`);
+  const decidedBody = await decided.text();
+  check('approve page escapes it', !decidedBody.includes('<img/src=x'), 'raw tag present');
+}
+
+console.log('\n== CSV export ==');
+{
+  const r = await call('/admin/emails.csv?key=super-secret-admin-key');
+  const body = await r.text();
+  check('csv content-type', /text\/csv/.test(r.headers.get('content-type')), r.headers.get('content-type'));
+  check('is an attachment', /attachment/.test(r.headers.get('content-disposition')));
+  check('has a header row', body.startsWith('email,first_seen,last_seen'), body.slice(0, 40));
+  check('contains a contact', body.includes('jane@acme.com'));
+  check('quotes fields (injection-safe)', body.includes('"jane@acme.com"'));
+}
+
+console.log('\n== contacts survive the 7-day purge of requests ==');
+{
+  const before = (await (await call('/admin?key=super-secret-admin-key')).text()).includes('jane@acme.com');
+  db.prepare('DELETE FROM requests').run();   // simulate the purge
+  const after = (await (await call('/admin?key=super-secret-admin-key')).text()).includes('jane@acme.com');
+  check('contact still listed after requests are gone', before && after);
 }
 
 console.log(failures === 0 ? '\nALL PASSED\n' : `\n${failures} FAILURE(S)\n`);

@@ -55,6 +55,20 @@ function check(name, cond, extra) {
   check('case study hidden', !(await contentShown()));
   check('email box empty', (await emailValue()) === '', await emailValue());
 
+  console.log('\n== the first ask is just an email ==');
+  {
+    const main = await page.textContent('#pm-cs-gate-main');
+    check('asks for an email plainly', /enter your email to continue/i.test(main), main.slice(0,120));
+    check('does not front-load the approval wait', !/five minutes/i.test(main), main.slice(0,200));
+    check('does not front-load the 4-hour window', !/4 hours/i.test(main), main.slice(0,200));
+    check('email field comes before the password field', await page.evaluate(() => {
+      const e = document.querySelector('#pm-cs-access-form input[type=email]');
+      const p = document.querySelector('.cs-gate-form input[type=password]');
+      return !!(e && p) && (e.compareDocumentPosition(p) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    }));
+    check('password path still available', await page.isVisible('.cs-gate-form input[type=password]'));
+  }
+
   console.log('\n== enter an approved address -> unlocks ==');
   await page.fill('#pm-cs-access-form input[type=email]', 'known@acme.com');
   await page.click('#pm-cs-access-form button');

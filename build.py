@@ -1252,21 +1252,18 @@ def _cs_gate(data, prefix=""):
     hrs = CS_ACCESS_TTL_HOURS
     access_block = wait_view = ""
     if CS_ACCESS_API_URL:
-        # Say up front that a human approves this and roughly how long it
-        # takes. Someone who doesn't know an approval is involved will
-        # otherwise read the wait as the page being broken.
+        # Email leads, password is the secondary path. The approval step is
+        # explained on the next screen rather than up front, so the first ask
+        # is just an email. Deliberately does not promise instant access.
         access_block = (
-            '<div class="cs-gate-divider"><span>or</span></div>'
             '<form class="cs-gate-access-form" id="pm-cs-access-form">'
             '<input type="email" class="cs-gate-input" placeholder="you@company.com" '
             'aria-label="Email address" autocomplete="email" required>'
-            '<button type="submit" class="ds-btn ds-btn--secondary cs-gate-btn">Request access</button>'
-            '</form>'
-            '<p class="cs-gate-note">I approve these myself, usually within five minutes. '
-            f'Access then covers every case study for {hrs} hours.</p>'
-            '<p class="cs-gate-access-status" id="pm-cs-access-status" hidden></p>'
+            '<button type="submit" class="ds-btn ds-btn--primary cs-gate-btn">Continue</button>'
+            '</form><p class="cs-gate-access-status" id="pm-cs-access-status" hidden></p>'
+            '<div class="cs-gate-divider"><span>or</span></div>'
         )
-        # Swapped in for the form once a request is in flight.
+        # Where the approval flow is actually explained.
         wait_view = (
             '<div id="pm-cs-wait" class="cs-gate-wait" hidden>'
             '<span class="cs-gate-lock cs-gate-wait-icon">'
@@ -1285,11 +1282,14 @@ def _cs_gate(data, prefix=""):
             f'<p class="cs-gate-note">Once approved you can open every gated case study for {hrs} hours.</p>'
             '</div>'
         )
-        sub = ('<p class="cs-gate-sub">Enter the password if you have one, or ask me for access '
-               'with your email below.</p>')
+        sub = '<p class="cs-gate-sub">Enter your email to continue.</p>'
+        pw_btn = 'ds-btn--secondary'
+        pw_label = 'Unlock with password'
     else:
         sub = ('<p class="cs-gate-sub">Enter the password to view it, or '
                f'<a href="mailto:{CONTACT_EMAIL}?subject=Case%20study%20access">email me for access</a>.</p>')
+        pw_btn = 'ds-btn--primary'
+        pw_label = 'Continue'
     return ('<div id="pm-cs-gate" class="cs-gate"><div class="cs-gate-card">'
             f'<a class="cs-gate-back" href="{work}">'
             '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" '
@@ -1302,11 +1302,11 @@ def _cs_gate(data, prefix=""):
             '<path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>'
             '<h1 class="cs-gate-title">This case study is under NDA</h1>'
             f'{sub}'
+            f'{access_block}'
             '<form class="cs-gate-form"><input type="password" class="cs-gate-input" '
             'placeholder="Enter password" aria-label="Password" autocomplete="off">'
-            '<button type="submit" class="ds-btn ds-btn--primary cs-gate-btn">Continue</button>'
+            f'<button type="submit" class="ds-btn {pw_btn} cs-gate-btn">{pw_label}</button>'
             '<p class="cs-gate-err" hidden>Incorrect password. Try again.</p></form>'
-            f'{access_block}'
             '</div>'
             f'{wait_view}'
             '</div></div>')

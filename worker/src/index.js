@@ -27,6 +27,7 @@
 //   GATE_PASSWORD   - must match CS_GATE_PW used by build.py
 //   PUSHOVER_TOKEN  - Pushover application token
 //   PUSHOVER_USER   - Pushover user/group key
+//   ADMIN_KEY       - secret for /admin?key=... , the collected-email list
 // Plain var:
 //   ALLOWED_ORIGIN  - site origin allowed to call this Worker via fetch
 
@@ -40,6 +41,32 @@ const RATE_MAX_PER_IP = 20;
 const RATE_MAX_PER_EMAIL = 5;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Emails reach these pages straight from a public form. EMAIL_RE happily
+// accepts `<img/src=x/onerror=...>@evil.co` -- no spaces, an @, a dot -- so
+// anything interpolated into HTML MUST go through this or it is stored XSS
+// against whoever opens the approval link.
+function esc(v) {
+  return String(v == null ? "" : v)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+// Relative time needs no timezone guess and reads fine at a glance.
+function ago(ts) {
+  if (!ts) return "-";
+  const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.round(s / 60)}m ago`;
+  if (s < 86400) return `${Math.round(s / 3600)}h ago`;
+  return `${Math.round(s / 86400)}d ago`;
+}
+function inFuture(ts) {
+  const s = Math.round((ts - Date.now()) / 1000);
+  if (s <= 0) return "expired";
+  if (s < 3600) return `${Math.round(s / 60)}m left`;
+  return `${Math.round(s / 360) / 10}h left`;
+}
 
 function corsHeaders(origin) {
   return {
@@ -95,6 +122,17 @@ async function ensureSchema(env) {
          expires_at INTEGER
        )`
     ),
+    // Every address ever submitted. Deliberately separate from `requests`,
+    // which is operational state and gets purged after 7 days -- this is the
+    // record that has to survive.
+    env.DB.prepare(
+      `CREATE TABLE IF NOT EXISTS contacts (
+         email TEXT PRIMARY KEY,
+         first_seen INTEGER NOT NULL,
+         last_seen INTEGER NOT NULL,
+         hits INTEGER NOT NULL DEFAULT 1
+       )`
+    ),
     env.DB.prepare(
       `CREATE INDEX IF NOT EXISTS idx_requests_email ON requests(email, created_at)`
     ),
@@ -143,7 +181,7 @@ async function sendPushover(env, selfOrigin, email, requestId) {
     user: env.PUSHOVER_USER,
     title: "Case study access request",
     message:
-      `<b>${email}</b> wants access to your gated case studies.<br><br>` +
+      `<b>${esc(email)}</b> wants access to your gated case studies.<br><br>` +
       `<a href="${approveUrl}">Approve</a>  |  <a href="${denyUrl}">Deny</a>`,
     html: "1",
     url: approveUrl,
@@ -168,6 +206,13 @@ async function handleRequestAccess(req, env) {
   if (!EMAIL_RE.test(email) || email.length > 254) {
     return json({ error: "invalid_email" }, 400, origin);
   }
+
+  // Log the address first: a repeat visitor who already has access, or one
+  // who trips the rate limit, is still a contact worth keeping.
+  await env.DB.prepare(
+    `INSERT INTO contacts (email, first_seen, last_seen, hits) VALUES (?1, ?2, ?2, 1)
+     ON CONFLICT(email) DO UPDATE SET last_seen = ?2, hits = hits + 1`
+  ).bind(email, Date.now()).run();
 
   const grant = await activeGrant(env, email);
   if (grant) return grantedResponse(env, grant, origin);
@@ -219,16 +264,24 @@ async function handleCheckEmail(req, env) {
 }
 
 async function handleDecision(req, env, decision) {
-  const token = new URL(req.url).searchParams.get("token") || "";
+  const url = new URL(req.url);
+  const token = url.searchParams.get("token") || "";
+  // Came from the admin list (which passes the key through)? Go back to it
+  // so several requests can be worked through in a row.
+  const backToAdmin = adminAuthed(url, env)
+    ? `/admin?key=${encodeURIComponent(url.searchParams.get("key"))}`
+    : null;
   const row = await env.DB.prepare(
     "SELECT email, status FROM requests WHERE id = ?1"
   ).bind(token).first();
 
   if (!row) {
+    if (backToAdmin) return Response.redirect(new URL(backToAdmin, url).toString(), 302);
     return html(`<h1>Nothing to do</h1><p>This request has expired or was already cleaned up.</p>`, 410);
   }
   if (row.status !== "pending") {
-    return html(`<h1>Already ${row.status}</h1><p><b>${row.email}</b> was already ${row.status}.</p>`, 409);
+    if (backToAdmin) return Response.redirect(new URL(backToAdmin, url).toString(), 302);
+    return html(`<h1>Already ${esc(row.status)}</h1><p><b>${esc(row.email)}</b> was already ${esc(row.status)}.</p>`, 409);
   }
 
   const now = Date.now();
@@ -248,11 +301,149 @@ async function handleDecision(req, env, decision) {
   }
   await env.DB.batch(writes);
 
+  if (backToAdmin) return Response.redirect(new URL(backToAdmin, url).toString(), 302);
+
   if (decision === "approved") {
     const hours = Math.round(ACCESS_TTL_MS / 3600000);
-    return html(`<h1>Approved</h1><p><b>${row.email}</b> can now open every gated case study for the next ${hours} hours. Their browser unlocks within a second.</p>`);
+    return html(`<h1>Approved</h1><p><b>${esc(row.email)}</b> can now open every gated case study for the next ${hours} hours. Their browser unlocks within a second.</p>`);
   }
-  return html(`<h1>Denied</h1><p>Request from <b>${row.email}</b> was denied.</p>`);
+  return html(`<h1>Denied</h1><p>Request from <b>${esc(row.email)}</b> was denied.</p>`);
+}
+
+
+// ---- admin ---------------------------------------------------------------
+// Guarded by a secret in the query string. That is enough for a bookmark on
+// one person's phone, but it does mean anyone holding the link can read every
+// address collected -- treat it like a password, and rotate ADMIN_KEY if it
+// ever leaks. The page is marked noindex and never linked from anywhere.
+function adminAuthed(url, env) {
+  const key = url.searchParams.get("key") || "";
+  return !!env.ADMIN_KEY && key === env.ADMIN_KEY;
+}
+
+function adminPage(body, status = 200) {
+  return new Response(
+    `<!doctype html><meta charset="utf-8">
+     <meta name="viewport" content="width=device-width,initial-scale=1">
+     <meta name="robots" content="noindex,nofollow">
+     <title>Access requests</title>
+     <style>
+       :root{color-scheme:light dark}
+       body{font:15px/1.5 -apple-system,system-ui,sans-serif;margin:0;padding:1.25rem;
+         max-width:60rem;margin-inline:auto;color:#111;background:#fff}
+       @media (prefers-color-scheme:dark){body{background:#111;color:#eee}
+         td,th{border-color:#333 !important}.card{background:#1a1a1a !important;border-color:#333 !important}
+         a{color:#6ea8fe}}
+       h1{font-size:1.3rem;margin:0 0 .25rem}
+       .sub{color:#777;margin:0 0 1.25rem;font-size:.85rem}
+       .row{display:flex;gap:.75rem;flex-wrap:wrap;margin-bottom:1.5rem}
+       .card{flex:1 1 8rem;padding:.75rem .9rem;border:1px solid #e5e5e5;border-radius:10px;background:#fafafa}
+       .card b{display:block;font-size:1.5rem;line-height:1.2}
+       .card span{color:#777;font-size:.8rem}
+       h2{font-size:1rem;margin:1.75rem 0 .6rem}
+       table{width:100%;border-collapse:collapse;font-size:.85rem}
+       th,td{text-align:left;padding:.5rem .4rem;border-bottom:1px solid #eee;vertical-align:top}
+       th{color:#777;font-weight:600;font-size:.75rem;text-transform:uppercase;letter-spacing:.04em}
+       td.email{word-break:break-all;font-weight:500}
+       .wrap{overflow-x:auto}
+       .pill{display:inline-block;padding:.1rem .45rem;border-radius:999px;font-size:.72rem;font-weight:600}
+       .ok{background:#e7f7ed;color:#0a7038}.no{background:#eee;color:#666}
+       .btn{display:inline-block;padding:.3rem .7rem;border-radius:7px;text-decoration:none;
+         font-size:.8rem;font-weight:600;margin-right:.3rem}
+       .approve{background:#0a7038;color:#fff}.deny{background:#eee;color:#333}
+       textarea{width:100%;height:6rem;font:12px/1.5 ui-monospace,monospace;padding:.6rem;
+         border:1px solid #ddd;border-radius:8px;background:#fafafa;color:inherit}
+       .empty{color:#888;font-style:italic}
+     </style>${body}`,
+    { status, headers: { "content-type": "text/html; charset=utf-8",
+                         "cache-control": "no-store", "x-robots-tag": "noindex" } }
+  );
+}
+
+async function handleAdmin(url, env) {
+  const key = encodeURIComponent(url.searchParams.get("key") || "");
+  const now = Date.now();
+
+  const pending = (await env.DB.prepare(
+    `SELECT id, email, created_at FROM requests WHERE status = 'pending'
+       AND created_at > ?1 ORDER BY created_at DESC`
+  ).bind(now - PENDING_TTL_MS).all()).results || [];
+
+  const contacts = (await env.DB.prepare(
+    `SELECT c.email, c.first_seen, c.last_seen, c.hits, a.expires_at
+       FROM contacts c LEFT JOIN approved a ON a.email = c.email
+      ORDER BY c.last_seen DESC`
+  ).all()).results || [];
+
+  const live = contacts.filter((c) => c.expires_at && c.expires_at > now).length;
+
+  const pendingRows = pending.length
+    ? pending.map((r) => `<tr>
+        <td class="email">${esc(r.email)}</td>
+        <td>${esc(ago(r.created_at))}</td>
+        <td>
+          <a class="btn approve" href="/approve?token=${encodeURIComponent(r.id)}&key=${key}">Approve</a>
+          <a class="btn deny" href="/deny?token=${encodeURIComponent(r.id)}&key=${key}">Deny</a>
+        </td></tr>`).join("")
+    : `<tr><td colspan="3" class="empty">Nothing waiting.</td></tr>`;
+
+  const contactRows = contacts.length
+    ? contacts.map((c) => `<tr>
+        <td class="email">${esc(c.email)}</td>
+        <td>${c.expires_at && c.expires_at > now
+              ? `<span class="pill ok">${esc(inFuture(c.expires_at))}</span>`
+              : `<span class="pill no">no access</span>`}</td>
+        <td>${esc(ago(c.last_seen))}</td>
+        <td>${esc(ago(c.first_seen))}</td>
+        <td>${esc(c.hits)}</td></tr>`).join("")
+    : `<tr><td colspan="5" class="empty">No one has asked yet.</td></tr>`;
+
+  return adminPage(`
+    <h1>Access requests</h1>
+    <p class="sub">Everyone who has entered their email on a gated case study.</p>
+    <div class="row">
+      <div class="card"><b>${contacts.length}</b><span>emails collected</span></div>
+      <div class="card"><b>${pending.length}</b><span>waiting on you</span></div>
+      <div class="card"><b>${live}</b><span>with access now</span></div>
+    </div>
+
+    <h2>Waiting for approval</h2>
+    <div class="wrap"><table>
+      <tr><th>Email</th><th>Asked</th><th></th></tr>${pendingRows}
+    </table></div>
+
+    <h2>All emails collected</h2>
+    <div class="wrap"><table>
+      <tr><th>Email</th><th>Access</th><th>Last seen</th><th>First seen</th><th>Times</th></tr>
+      ${contactRows}
+    </table></div>
+
+    <h2>Copy them all</h2>
+    <textarea readonly onclick="this.select()">${esc(contacts.map((c) => c.email).join(", "))}</textarea>
+    <p class="sub" style="margin-top:.6rem">
+      <a href="/admin/emails.csv?key=${key}">Download CSV</a>
+    </p>`);
+}
+
+async function handleAdminCsv(url, env) {
+  const rows = (await env.DB.prepare(
+    `SELECT c.email, c.first_seen, c.last_seen, c.hits, a.expires_at
+       FROM contacts c LEFT JOIN approved a ON a.email = c.email
+      ORDER BY c.last_seen DESC`
+  ).all()).results || [];
+  const iso = (t) => (t ? new Date(t).toISOString() : "");
+  const cell = (v) => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
+  const csv = ["email,first_seen,last_seen,times_asked,access_expires"]
+    .concat(rows.map((r) =>
+      [r.email, iso(r.first_seen), iso(r.last_seen), r.hits, iso(r.expires_at)].map(cell).join(",")))
+    .join("\n");
+  return new Response(csv, {
+    headers: {
+      "content-type": "text/csv; charset=utf-8",
+      "content-disposition": 'attachment; filename="case-study-emails.csv"',
+      "cache-control": "no-store",
+    },
+  });
 }
 
 export default {
@@ -273,7 +464,8 @@ export default {
     }
 
     if (url.pathname === "/health") {
-      return json({ ok: true, storage: "d1", accessTtlHours: ACCESS_TTL_MS / 3600000 }, 200, origin);
+      return json({ ok: true, storage: "d1", accessTtlHours: ACCESS_TTL_MS / 3600000,
+                    adminConfigured: !!env.ADMIN_KEY }, 200, origin);
     }
 
     try {
@@ -292,6 +484,15 @@ export default {
       }
       if (url.pathname === "/deny" && req.method === "GET") {
         return await handleDecision(req, env, "denied");
+      }
+      if (url.pathname === "/admin" || url.pathname === "/admin/emails.csv") {
+        if (!env.ADMIN_KEY) {
+          return adminPage(`<h1>Not configured</h1><p class="sub">Set an ADMIN_KEY secret on this Worker to use this page.</p>`, 503);
+        }
+        if (!adminAuthed(url, env)) {
+          return adminPage(`<h1>Not found</h1>`, 404);
+        }
+        return url.pathname === "/admin" ? await handleAdmin(url, env) : await handleAdminCsv(url, env);
       }
     } catch (err) {
       return json({ error: "server_error", detail: String(err && err.message || err) }, 500, origin);

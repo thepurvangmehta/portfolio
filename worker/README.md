@@ -28,10 +28,12 @@ the workload KV's caching model is wrong for.
 2. **Bind it.** Worker, Settings, Bindings, add a **D1 database** binding with
    variable name `DB` pointing at `cs-access`. The variable name must be
    exactly `DB`.
-3. **Set secrets** (Settings, Variables, tick Encrypt on all three):
+3. **Set secrets** (Settings, Variables, tick Encrypt on all four):
    - `GATE_PASSWORD` - must exactly match `CS_GATE_PW` used by `build.py`
    - `PUSHOVER_TOKEN` - Pushover application token
    - `PUSHOVER_USER` - Pushover user/group key
+   - `ADMIN_KEY` - any long random string; it is the password to the
+     collected-email page below
 4. **Set the plain var** `ALLOWED_ORIGIN` to `https://thepurvangmehta.com`.
 5. **Deploy** the code in `src/index.js` (paste it into the dashboard editor,
    or `wrangler deploy` from this directory).
@@ -51,6 +53,26 @@ If `CS_ACCESS_API_URL` is unset the build falls back to a password-only gate
 with no email-request UI, which is the safe default if the Worker is ever
 taken down.
 
+## Seeing who has asked
+
+`https://<your-worker>.workers.dev/admin?key=<ADMIN_KEY>`
+
+Every address ever entered on a gated case study, when it was first and last
+seen, how many times, whether it currently has access, plus Approve/Deny
+buttons for anything waiting and a CSV export. Bookmark it.
+
+Two things to know:
+
+- **The link is the password.** Anyone who has it can read every address
+  collected. Don't paste it into a shared doc or a screenshot. If it leaks,
+  change `ADMIN_KEY` in the dashboard and the old link dies.
+- **Addresses are kept indefinitely**, in a `contacts` table separate from the
+  operational `requests` rows (which are purged after 7 days). That is the
+  point of the page, but it does mean you are holding personal data from
+  visitors, so the privacy policy should say you collect it and why. Delete
+  one with:
+  `wrangler d1 execute cs-access --command "DELETE FROM contacts WHERE email='x@y.com'"`
+
 ## Endpoints
 
 | Route | Purpose |
@@ -60,12 +82,18 @@ taken down.
 | `GET /check-email?email=` | has this address already been approved |
 | `GET /approve?token=` | the Approve link in the push notification |
 | `GET /deny?token=` | the Deny link |
+| `GET /admin?key=` | collected emails, pending approvals, CSV link |
+| `GET /admin/emails.csv?key=` | CSV export of every address |
 | `GET /health` | binding sanity check |
 
 ## Operational notes
 
-- **Approval is global and permanent.** To revoke:
+- **An approval is global but time-limited**: it opens every gated case study
+  for 4 hours (`ACCESS_TTL_MS`), then they have to ask again. Approving the
+  same address again just resets the window. To revoke early:
   `wrangler d1 execute cs-access --command "DELETE FROM approved WHERE email='someone@example.com'"`
+  Note this only stops them re-entering; a page already decrypted in someone's
+  browser stays readable, which is inherent to a static site.
 - **Rate limits**: 20 requests/hour per IP, 5/hour per email address, counted
   in SQL against the `requests` table. Tune the constants in `src/index.js`.
 - **Housekeeping** is piggybacked onto approve/deny: rows older than 7 days are
