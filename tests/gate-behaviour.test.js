@@ -1,9 +1,11 @@
 // Verifies the gate's reload behaviour. Run against a locally served build:
 //
 //   CS_GATE_PW=gate-test-pw CS_ACCESS_API_URL=https://api.example.test python3 build.py
-//   (cd site && python3 -m http.server 8795 &)
-//   NODE_PATH=$(npm root -g) GATE_URL=http://localhost:8795/healthcare/ \
+//   (cd site && python3 -m http.server 8796 &)
+//   NODE_PATH=$(npm root -g) GATE_URL=http://localhost:8796/healthcare/ \
 //     GATE_SECRET=gate-test-pw node tests/gate-behaviour.test.js
+//
+// GATE_SECRET must equal the CS_GATE_PW the build was made with.
 //
 // Checks:
 //   - after unlocking once, a reload shows the GATE again (never auto-enters)
@@ -12,7 +14,7 @@
 //   - the email stays editable and a different address still works
 const { chromium } = require('playwright');
 const SECRET = process.env.GATE_SECRET || 'gate-test-pw';
-const URL_ = process.env.GATE_URL || 'http://localhost:8795/healthcare/';
+const URL_ = process.env.GATE_URL || 'http://localhost:8796/healthcare/';
 
 let failures = 0;
 function check(name, cond, extra) {
@@ -88,21 +90,46 @@ function check(name, cond, extra) {
   await page.fill('#pm-cs-access-form input[type=email]', 'stranger@else.com');
   check('field accepted a new address', (await emailValue()) === 'stranger@else.com');
   await page.click('#pm-cs-access-form button');
-  await page.waitForFunction(() => {
-    const el = document.getElementById('pm-cs-access-status');
-    return el && !el.hidden && /waiting for approval/i.test(el.textContent);
-  }, { timeout: 8000 });
-  check('new address -> waiting for approval', true);
-  check('still gated for unapproved address', !(await contentShown()));
-  check('request used the edited address', requestAccessCalls[requestAccessCalls.length - 1] === 'stranger@else.com',
-    requestAccessCalls);
+  await page.waitForSelector('#pm-cs-wait:not([hidden])', { timeout: 8000 });
+  check('swaps to the waiting view', await page.isVisible('#pm-cs-wait'));
+  check('form view is hidden', !(await page.isVisible('#pm-cs-gate-main')));
+  check('still gated', !(await contentShown()));
+  check('request used the edited address',
+    requestAccessCalls[requestAccessCalls.length - 1] === 'stranger@else.com', requestAccessCalls);
 
-  console.log('\n== reload while a request is pending: gate + resumes waiting ==');
+  console.log('\n== the waiting view sets expectations ==');
+  {
+    const lede = (await page.textContent('#pm-cs-wait-lede')).toLowerCase();
+    const note = (await page.textContent('#pm-cs-wait .cs-gate-note')).toLowerCase();
+    check('says a human approves it', /i approve these personally/.test(lede), lede);
+    check('promises ~five minutes', /five minutes/.test(lede), lede);
+    check('states the 4-hour window', /4 hours/.test(note), note);
+    check('states it covers every case study', /every gated case study/.test(note), note);
+    check('echoes the address back', (await page.textContent('#pm-cs-wait-email')) === 'stranger@else.com');
+    check('a live status region for screen readers',
+      (await page.getAttribute('.cs-gate-wait-status', 'aria-live')) === 'polite');
+  }
+
+  console.log('\n== "Use a different email" backs out ==');
+  await page.click('#pm-cs-wait-back');
+  check('form view is back', await page.isVisible('#pm-cs-gate-main'));
+  check('waiting view hidden', !(await page.isVisible('#pm-cs-wait')));
+  check('button usable again', !(await page.isDisabled('#pm-cs-access-form button')));
+  await page.fill('#pm-cs-access-form input[type=email]', 'known@acme.com');
+  await page.click('#pm-cs-access-form button');
+  await page.waitForSelector('#pm-cs-doc h1', { timeout: 8000 });
+  check('can still get in after backing out', await contentShown());
+
+  console.log('\n== reload while a request is pending resumes the waiting view ==');
+  await page.evaluate(() => {
+    localStorage.setItem('pmCsEmail', 'stranger@else.com');
+    localStorage.setItem('pmCsReq:healthcare', 'req-new');
+  });
   await page.reload({ waitUntil: 'networkidle' });
   await page.waitForTimeout(600);
-  check('gate showing', await gateVisible());
-  check('prefilled with the pending address', (await emailValue()) === 'stranger@else.com', await emailValue());
-  check('button still usable to change address', !(await page.isDisabled('#pm-cs-access-form button')));
+  check('waiting view restored', await page.isVisible('#pm-cs-wait'));
+  check('address restored', (await page.textContent('#pm-cs-wait-email')) === 'stranger@else.com');
+  check('did not auto-enter', !(await contentShown()));
 
   console.log(failures === 0 ? '\nALL PASSED\n' : `\n${failures} FAILURE(S)\n`);
   await browser.close();

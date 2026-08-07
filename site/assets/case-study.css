@@ -332,7 +332,31 @@ main.cs > .cs-more{width:100vw;margin-left:calc(50% - 50vw)}
 .cs-gate-divider::before,.cs-gate-divider::after{content:"";flex:1;height:1px;background:var(--ds-border)}
 .cs-gate-access-form{margin:0}
 .cs-gate-access-status{margin:var(--ds-space-3) 0 0;color:var(--ds-ink-soft);
-  font:500 var(--ds-text-sm)/1 var(--ds-font-sans)}
+  font:500 var(--ds-text-sm)/1.4 var(--ds-font-sans)}
+/* sets expectations before the visitor commits: a human approves this */
+.cs-gate-note{margin:var(--ds-space-3) 0 0;color:var(--ds-ink-soft);
+  font:400 var(--ds-text-sm)/1.5 var(--ds-font-sans)}
+
+/* ---- waiting-for-approval view (replaces the form in-place) ---- */
+.cs-gate-wait-icon{color:var(--ds-accent)}
+.cs-gate-wait .cs-gate-sub{margin-bottom:var(--ds-space-5,20px)}
+.cs-gate-wait-status{display:flex;align-items:center;gap:9px;margin:0;
+  padding:12px 14px;border:1px solid var(--ds-border);
+  border-radius:var(--ds-radius-md);background:var(--ds-surface);
+  color:var(--ds-ink);font:500 var(--ds-text-sm)/1.3 var(--ds-font-sans)}
+.cs-gate-dot{flex:none;width:8px;height:8px;border-radius:50%;
+  background:var(--ds-accent);animation:cs-gate-pulse 1.4s ease-in-out infinite}
+/* opacity/transform only: animating size or spacing here would thrash layout */
+@keyframes cs-gate-pulse{0%,100%{opacity:1;transform:scale(1)}
+  50%{opacity:.35;transform:scale(.72)}}
+@media (prefers-reduced-motion:reduce){.cs-gate-dot{animation:none}}
+.cs-gate-wait-email{margin:var(--ds-space-3) 0 0;color:var(--ds-ink-soft);
+  font:400 var(--ds-text-sm)/1.4 var(--ds-font-sans);word-break:break-all}
+.cs-gate-link{display:inline-block;margin:6px 0 0;padding:0;border:0;
+  background:none;cursor:pointer;color:var(--ds-accent);
+  font:500 var(--ds-text-sm)/1.4 var(--ds-font-sans);text-decoration:underline;
+  text-underline-offset:2px}
+.cs-gate-link:hover{opacity:.75}
 
 /* ---- mobile ----------------------------------------------- */
 @media (max-width:767.98px){

@@ -7,8 +7,10 @@
 //   3. Otherwise a pending request is stored and a Pushover notification
 //      is sent with Approve/Deny links.
 //   4. The browser polls /check-access until the request resolves.
-//   5. Tapping Approve/Deny hits /approve or /deny. Approval is global and
-//      permanent: that email can open every gated case study from then on.
+//   5. Tapping Approve/Deny hits /approve or /deny. An approval grants that
+//      email every gated case study for ACCESS_TTL_MS (4 hours), after which
+//      they have to ask again. Approving the same address again just resets
+//      the window.
 //
 // Storage is D1, NOT KV, on purpose. KV reads are edge-cached for at least
 // 60 seconds -- including cache misses -- so a browser polling "approved
@@ -18,8 +20,9 @@
 //
 // Bindings (dashboard -> Worker -> Settings -> Bindings):
 //   DB         - D1 database  (required)
-//   CS_ACCESS  - KV namespace (optional; only read, to honour approvals
-//                created by the older KV-backed version of this Worker)
+//   (A CS_ACCESS KV binding is no longer read. Grants from the KV era were
+//   permanent, which contradicts the time-limited policy below, so they are
+//   deliberately not carried over. The binding can be deleted.)
 // Secrets (dashboard -> Settings -> Variables, "Encrypt"):
 //   GATE_PASSWORD   - must match CS_GATE_PW used by build.py
 //   PUSHOVER_TOKEN  - Pushover application token
@@ -27,6 +30,9 @@
 // Plain var:
 //   ALLOWED_ORIGIN  - site origin allowed to call this Worker via fetch
 
+// How long an approval lasts. Keep in step with CS_ACCESS_TTL_HOURS in
+// build.py, which is what the gate UI tells visitors.
+const ACCESS_TTL_MS = 4 * 60 * 60 * 1000;
 const PENDING_TTL_MS = 24 * 60 * 60 * 1000;   // a request goes stale after 24h
 const PURGE_AFTER_MS = 7 * 24 * 60 * 60 * 1000; // rows deleted after 7 days
 const RATE_WINDOW_MS = 60 * 60 * 1000;
@@ -85,7 +91,8 @@ async function ensureSchema(env) {
     env.DB.prepare(
       `CREATE TABLE IF NOT EXISTS approved (
          email TEXT PRIMARY KEY,
-         created_at INTEGER NOT NULL
+         created_at INTEGER NOT NULL,
+         expires_at INTEGER
        )`
     ),
     env.DB.prepare(
@@ -95,25 +102,30 @@ async function ensureSchema(env) {
       `CREATE INDEX IF NOT EXISTS idx_requests_ip ON requests(ip, created_at)`
     ),
   ]);
+  // Deployments created before access was time-limited have an `approved`
+  // table with no expires_at. Add it, and treat those old permanent grants as
+  // already lapsed rather than silently honouring them forever.
+  try {
+    await env.DB.prepare("ALTER TABLE approved ADD COLUMN expires_at INTEGER").run();
+    await env.DB.prepare("UPDATE approved SET expires_at = created_at WHERE expires_at IS NULL").run();
+  } catch (e) {
+    // Column already present: nothing to migrate.
+  }
   schemaReady = true;
 }
 
-async function isApproved(env, email) {
-  const row = await env.DB.prepare("SELECT 1 AS ok FROM approved WHERE email = ?1")
-    .bind(email).first();
-  if (row) return true;
-  // Legacy: approvals granted by the older KV-backed Worker. Read once, then
-  // copy into D1 so this fallback stops being hit for that address.
-  if (env.CS_ACCESS) {
-    const legacy = await env.CS_ACCESS.get(`approved:${email}`);
-    if (legacy) {
-      await env.DB.prepare(
-        "INSERT OR IGNORE INTO approved (email, created_at) VALUES (?1, ?2)"
-      ).bind(email, Date.now()).run();
-      return true;
-    }
-  }
-  return false;
+// Returns the expiry timestamp of a live grant for this address, or null if
+// there isn't one (never approved, or the window has passed).
+async function activeGrant(env, email) {
+  const row = await env.DB.prepare(
+    "SELECT expires_at FROM approved WHERE email = ?1"
+  ).bind(email).first();
+  if (!row || !row.expires_at) return null;
+  return Date.now() < row.expires_at ? row.expires_at : null;
+}
+
+function grantedResponse(env, expiresAt, origin) {
+  return json({ status: "approved", secret: env.GATE_PASSWORD, expiresAt }, 200, origin);
 }
 
 async function countSince(env, column, value, since) {
@@ -157,9 +169,8 @@ async function handleRequestAccess(req, env) {
     return json({ error: "invalid_email" }, 400, origin);
   }
 
-  if (await isApproved(env, email)) {
-    return json({ status: "approved", secret: env.GATE_PASSWORD }, 200, origin);
-  }
+  const grant = await activeGrant(env, email);
+  if (grant) return grantedResponse(env, grant, origin);
 
   const ip = req.headers.get("CF-Connecting-IP") || "unknown";
   const since = Date.now() - RATE_WINDOW_MS;
@@ -183,12 +194,14 @@ async function handleCheckAccess(req, env) {
   const origin = env.ALLOWED_ORIGIN;
   const requestId = new URL(req.url).searchParams.get("requestId") || "";
   const row = await env.DB.prepare(
-    "SELECT status, created_at FROM requests WHERE id = ?1"
+    "SELECT email, status, created_at FROM requests WHERE id = ?1"
   ).bind(requestId).first();
 
   if (!row) return json({ status: "expired" }, 200, origin);
   if (row.status === "approved") {
-    return json({ status: "approved", secret: env.GATE_PASSWORD }, 200, origin);
+    // Approved, but the 4-hour window may have already run out.
+    const grant = await activeGrant(env, row.email);
+    return grant ? grantedResponse(env, grant, origin) : json({ status: "expired" }, 200, origin);
   }
   if (row.status === "denied") return json({ status: "denied" }, 200, origin);
   if (Date.now() - row.created_at > PENDING_TTL_MS) {
@@ -201,10 +214,8 @@ async function handleCheckEmail(req, env) {
   const origin = env.ALLOWED_ORIGIN;
   const email = (new URL(req.url).searchParams.get("email") || "").trim().toLowerCase();
   if (!EMAIL_RE.test(email)) return json({ status: "none" }, 200, origin);
-  if (await isApproved(env, email)) {
-    return json({ status: "approved", secret: env.GATE_PASSWORD }, 200, origin);
-  }
-  return json({ status: "none" }, 200, origin);
+  const grant = await activeGrant(env, email);
+  return grant ? grantedResponse(env, grant, origin) : json({ status: "none" }, 200, origin);
 }
 
 async function handleDecision(req, env, decision) {
@@ -229,14 +240,17 @@ async function handleDecision(req, env, decision) {
   ];
   if (decision === "approved") {
     writes.push(
-      env.DB.prepare("INSERT OR IGNORE INTO approved (email, created_at) VALUES (?1, ?2)")
-        .bind(row.email, now)
+      env.DB.prepare(
+        `INSERT INTO approved (email, created_at, expires_at) VALUES (?1, ?2, ?3)
+         ON CONFLICT(email) DO UPDATE SET expires_at = excluded.expires_at`
+      ).bind(row.email, now, now + ACCESS_TTL_MS)
     );
   }
   await env.DB.batch(writes);
 
   if (decision === "approved") {
-    return html(`<h1>Approved</h1><p><b>${row.email}</b> can now open every gated case study. Their browser unlocks within a second.</p>`);
+    const hours = Math.round(ACCESS_TTL_MS / 3600000);
+    return html(`<h1>Approved</h1><p><b>${row.email}</b> can now open every gated case study for the next ${hours} hours. Their browser unlocks within a second.</p>`);
   }
   return html(`<h1>Denied</h1><p>Request from <b>${row.email}</b> was denied.</p>`);
 }
@@ -259,7 +273,7 @@ export default {
     }
 
     if (url.pathname === "/health") {
-      return json({ ok: true, storage: "d1", legacyKv: !!env.CS_ACCESS }, 200, origin);
+      return json({ ok: true, storage: "d1", accessTtlHours: ACCESS_TTL_MS / 3600000 }, 200, origin);
     }
 
     try {

@@ -23,6 +23,10 @@ CS_GATE_PW = (os.environ.get("CS_GATE_PW") or "").strip() or None
 # Unset -> the email-request UI is omitted and the gate falls back to
 # password-only, so builds keep working before the Worker is deployed.
 CS_ACCESS_API_URL = (os.environ.get("CS_ACCESS_API_URL") or "").strip().rstrip("/") or None
+# How long an approval lasts, purely for what the gate UI promises visitors.
+# The Worker is the authority: keep this in step with ACCESS_TTL_MS in
+# worker/src/index.js.
+CS_ACCESS_TTL_HOURS = 4
 RESUME_URL = "https://drive.google.com/file/d/1i2vT2GYwkOnyoGzwG4zNUabKpk-ayuYX/view?usp=sharing"
 
 # ---- hand-built nav (replaces the Framer-exported nav entirely) ----------
@@ -1023,8 +1027,14 @@ def _cs_gate_access_js(api_url):
         "var blob=JSON.parse(b.textContent);"
         "var af=document.getElementById('pm-cs-access-form'),"
         "ai=af&&af.querySelector('input'),ab=af&&af.querySelector('button'),"
-        "st=document.getElementById('pm-cs-access-status');"
-        "if(!af||!st)return;"
+        "st=document.getElementById('pm-cs-access-status'),"
+        "mainView=document.getElementById('pm-cs-gate-main'),"
+        "waitView=document.getElementById('pm-cs-wait'),"
+        "waitMsg=document.getElementById('pm-cs-wait-msg'),"
+        "waitLede=document.getElementById('pm-cs-wait-lede'),"
+        "waitEmail=document.getElementById('pm-cs-wait-email'),"
+        "waitBack=document.getElementById('pm-cs-wait-back');"
+        "if(!af||!st||!mainView||!waitView)return;"
         "var slug=(document.getElementById('pm-cs-doc')||{}).getAttribute&&"
         "document.getElementById('pm-cs-doc').getAttribute('data-slug')||location.pathname;"
         "var LS_EMAIL='pmCsEmail',LS_REQ='pmCsReq:'+slug;"
@@ -1042,6 +1052,21 @@ def _cs_gate_access_js(api_url):
         "if(window.pmCsToc)window.pmCsToc();if(window.pmCsReveal)window.pmCsReveal();"
         "if(window.pmCsReel)window.pmCsReel();if(window.pmCsMedia)window.pmCsMedia();});}"
         "function setStatus(msg,hidden){st.hidden=!!hidden;st.textContent=msg||'';}"
+        "function showForm(msg){waitView.hidden=true;mainView.hidden=false;"
+        "ab.disabled=false;setStatus(msg||'',!msg);}"
+        "function showWaiting(email){setStatus('',true);mainView.hidden=true;"
+        "waitView.hidden=false;waitEmail.textContent=email||'';"
+        "waitMsg.textContent='Waiting for approval';}"
+        # Five minutes is the promise on the card. If it slips past that,
+        # say so plainly rather than leaving the same line spinning, and stop
+        # implying the tab has to stay open.
+        "function waitCopy(){var el=Date.now()-pollStart;"
+        "if(el>1200000){waitMsg.textContent='Still waiting';"
+        "waitLede.textContent='This is taking longer than usual, I may be away from my phone. "
+        "You can close this and come back later, the link stays valid for 24 hours.';}"
+        "else if(el>300000){waitMsg.textContent='Still waiting';"
+        "waitLede.textContent=\'A little longer than usual. I will approve it as soon as I see it, "
+        "you can leave this open.\';}}"
         # Poll fast while the visitor is plausibly still watching the screen
         # (1s for the first 2 min), then back off so a tab left open all day
         # isn't hammering the Worker. Also poll the instant the tab regains
@@ -1064,10 +1089,10 @@ def _cs_gate_access_js(api_url):
         "if(d.status==='approved'){stopPoll();localStorage.removeItem(LS_REQ);"
         "unlockWith(d.secret,'Approved! Unlocking…');}"
         "else if(d.status==='denied'){stopPoll();localStorage.removeItem(LS_REQ);"
-        "setStatus('Access request was denied.');ab.disabled=false;}"
+        "showForm('That request was not approved.');}"
         "else if(d.status==='expired'){stopPoll();localStorage.removeItem(LS_REQ);"
-        "setStatus('Request expired. Try again.');ab.disabled=false;}"
-        "else{schedule();}"
+        "showForm('That request expired. Please ask again.');}"
+        "else{waitCopy();schedule();}"
         "}).catch(function(){inFlight=false;schedule();});}"
         "function startPoll(id){pollDone=false;pollStart=0;inFlight=false;poll(id);}"
         "function pollNow(){if(pollDone||!curReq)return;"
@@ -1079,8 +1104,8 @@ def _cs_gate_access_js(api_url):
         # build's CS_GATE_PW have drifted apart. Without this catch the
         # visitor sits on "Unlocking..." forever with no way out.
         "function unlockWith(secret,msg){setStatus(msg||'Unlocking…',false);"
-        "return decryptWith(secret).catch(function(){ab.disabled=false;"
-        "setStatus('Approved, but this page could not be unlocked. Please let me know.');});}"
+        "return decryptWith(secret).catch(function(){"
+        "showForm('Approved, but this page could not be unlocked. Please let me know.');});}"
         "af.addEventListener('submit',function(ev){ev.preventDefault();"
         "var email=ai.value.trim();if(!email)return;"
         # Submitting supersedes any request still being polled -- the visitor
@@ -1093,21 +1118,24 @@ def _cs_gate_access_js(api_url):
         ".then(function(d){"
         "if(d.status==='approved'){unlockWith(d.secret);}"
         "else if(d.status==='pending'){localStorage.setItem(LS_REQ,d.requestId);"
-        "setStatus('Request sent — waiting for approval…',false);startPoll(d.requestId);}"
-        "else if(d.error==='rate_limited'){ab.disabled=false;"
-        "setStatus('Too many requests just now. Please try again later.');}"
-        "else if(d.error==='invalid_email'){ab.disabled=false;"
-        "setStatus('That email address does not look right.');}"
-        "else{ab.disabled=false;setStatus('Something went wrong. Try again.');}"
-        "}).catch(function(){ab.disabled=false;setStatus('Something went wrong. Try again.');});});"
+        "localStorage.setItem(LS_EMAIL,email);showWaiting(email);startPoll(d.requestId);}"
+        "else if(d.error==='rate_limited'){"
+        "showForm('Too many requests just now. Please try again later.');}"
+        "else if(d.error==='invalid_email'){"
+        "showForm('That email address does not look right.');}"
+        "else{showForm('Something went wrong. Try again.');}"
+        "}).catch(function(){showForm('Something went wrong. Try again.');});});"
         # On load the gate is ALWAYS shown, even for an address that has
         # already been approved. The last-used email is prefilled purely as a
         # convenience -- entering is an explicit act, and the address stays
         # editable so a different one can be used.
+        "if(waitBack)waitBack.addEventListener('click',function(){"
+        "stopPoll();localStorage.removeItem(LS_REQ);showForm();"
+        "setTimeout(function(){ai.focus();ai.select();},40);});"
         "var savedReq=localStorage.getItem(LS_REQ);"
         "var savedEmail=localStorage.getItem(LS_EMAIL);"
         "if(savedEmail)ai.value=savedEmail;"
-        "if(savedReq){setStatus('Waiting for approval…',false);startPoll(savedReq);}"
+        "if(savedReq){showWaiting(savedEmail||'');startPoll(savedReq);}"
         "})();</script>")
 
 CS_NICE_NAMES = {
@@ -1214,18 +1242,44 @@ def _cs_gate(data, prefix=""):
     Sits below the nav (so the site stays navigable) and offers an explicit
     way back to the work index plus an email-for-access path."""
     work = prefix + "projects/"
-    access_block = ""
+    hrs = CS_ACCESS_TTL_HOURS
+    access_block = wait_view = ""
     if CS_ACCESS_API_URL:
+        # Say up front that a human approves this and roughly how long it
+        # takes. Someone who doesn't know an approval is involved will
+        # otherwise read the wait as the page being broken.
         access_block = (
             '<div class="cs-gate-divider"><span>or</span></div>'
             '<form class="cs-gate-access-form" id="pm-cs-access-form">'
             '<input type="email" class="cs-gate-input" placeholder="you@company.com" '
-            'aria-label="Email" autocomplete="email" required>'
+            'aria-label="Email address" autocomplete="email" required>'
             '<button type="submit" class="ds-btn ds-btn--secondary cs-gate-btn">Request access</button>'
-            '</form><p class="cs-gate-access-status" id="pm-cs-access-status" hidden></p>'
+            '</form>'
+            '<p class="cs-gate-note">I approve these myself, usually within five minutes. '
+            f'Access then covers every case study for {hrs} hours.</p>'
+            '<p class="cs-gate-access-status" id="pm-cs-access-status" hidden></p>'
         )
-        sub = ('<p class="cs-gate-sub">Enter the password to view it, or request access below — '
-               "I'll get a notification and you'll be unlocked as soon as I approve it.</p>")
+        # Swapped in for the form once a request is in flight.
+        wait_view = (
+            '<div id="pm-cs-wait" class="cs-gate-wait" hidden>'
+            '<span class="cs-gate-lock cs-gate-wait-icon">'
+            '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" '
+            'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+            '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>'
+            '<h1 class="cs-gate-title">Request sent</h1>'
+            '<p class="cs-gate-sub" id="pm-cs-wait-lede">'
+            "It's on my phone now. I approve these personally, usually within five minutes. "
+            'Leave this tab open and it unlocks by itself.</p>'
+            '<p class="cs-gate-wait-status" role="status" aria-live="polite">'
+            '<span class="cs-gate-dot" aria-hidden="true"></span>'
+            '<span id="pm-cs-wait-msg">Waiting for approval</span></p>'
+            '<p class="cs-gate-wait-email" id="pm-cs-wait-email"></p>'
+            '<button type="button" class="cs-gate-link" id="pm-cs-wait-back">Use a different email</button>'
+            f'<p class="cs-gate-note">Once approved you can open every gated case study for {hrs} hours.</p>'
+            '</div>'
+        )
+        sub = ('<p class="cs-gate-sub">Enter the password if you have one, or ask me for access '
+               'with your email below.</p>')
     else:
         sub = ('<p class="cs-gate-sub">Enter the password to view it, or '
                f'<a href="mailto:{CONTACT_EMAIL}?subject=Case%20study%20access">email me for access</a>.</p>')
@@ -1234,6 +1288,7 @@ def _cs_gate(data, prefix=""):
             '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" '
             'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
             '<path d="M19 12H5M12 19l-7-7 7-7"/></svg>Back to work</a>'
+            '<div id="pm-cs-gate-main">'
             '<span class="cs-gate-lock"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" '
             'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" '
             'aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/>'
@@ -1245,6 +1300,8 @@ def _cs_gate(data, prefix=""):
             '<button type="submit" class="ds-btn ds-btn--primary cs-gate-btn">Continue</button>'
             '<p class="cs-gate-err" hidden>Incorrect password. Try again.</p></form>'
             f'{access_block}'
+            '</div>'
+            f'{wait_view}'
             '</div></div>')
 
 def _cs_slug(text):

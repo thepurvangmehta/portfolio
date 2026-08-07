@@ -156,6 +156,46 @@ console.log('\n== rate limiting ==');
   check('per-IP flood eventually 429', last.status === 429, last.status);
 }
 
+console.log('\n== access is time-limited (4h), not permanent ==');
+{
+  const j = await (await postJson('/request-access', { email: 'ttl@x.com' }, { 'CF-Connecting-IP': '7.7.7.7' })).json();
+  await call(`/approve?token=${j.requestId}`);
+
+  const ok = await (await call('/check-email?email=ttl@x.com')).json();
+  check('approved -> has access', ok.status === 'approved', ok);
+  const hours = (ok.expiresAt - Date.now()) / 3600000;
+  check('window is ~4 hours', hours > 3.9 && hours <= 4.01, hours);
+
+  // Wind the grant back so it has lapsed.
+  db.prepare('UPDATE approved SET expires_at = ?1 WHERE email = ?2')
+    .run(Date.now() - 1000, 'ttl@x.com');
+
+  const gone = await (await call('/check-email?email=ttl@x.com')).json();
+  check('lapsed grant -> no access', gone.status === 'none', gone);
+  check('no secret handed out after expiry', gone.secret === undefined, gone);
+
+  const poll = await (await call(`/check-access?requestId=${j.requestId}`)).json();
+  check('old approved request reads as expired', poll.status === 'expired', poll);
+
+  // Asking again after expiry must start a fresh request, not auto-approve.
+  const again = await (await postJson('/request-access', { email: 'ttl@x.com' }, { 'CF-Connecting-IP': '7.7.7.8' })).json();
+  check('must request again after expiry', again.status === 'pending', again);
+
+  // Re-approving resets the window rather than erroring on the PK.
+  await call(`/approve?token=${again.requestId}`);
+  const renewed = await (await call('/check-email?email=ttl@x.com')).json();
+  check('re-approval restores access', renewed.status === 'approved', renewed);
+  check('window reset to ~4h', (renewed.expiresAt - Date.now()) / 3600000 > 3.9, renewed.expiresAt);
+}
+
+console.log('\n== legacy permanent grants are not honoured ==');
+{
+  db.prepare('INSERT INTO approved (email, created_at, expires_at) VALUES (?1, ?2, NULL)')
+    .run('legacy@old.com', Date.now());
+  const j = await (await call('/check-email?email=legacy@old.com')).json();
+  check('null expiry != access', j.status === 'none', j);
+}
+
 console.log('\n== stale pending request expires ==');
 {
   const j = await (await postJson('/request-access', { email: 'old@x.com' }, { 'CF-Connecting-IP': '6.6.6.6' })).json();
