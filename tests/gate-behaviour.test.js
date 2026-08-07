@@ -131,6 +131,39 @@ function check(name, cond, extra) {
   check('address restored', (await page.textContent('#pm-cs-wait-email')) === 'stranger@else.com');
   check('did not auto-enter', !(await contentShown()));
 
+  console.log('\n== reload AFTER approval must not auto-enter (regression) ==');
+  {
+    // The exact reported flow: submit an email, approve it, then reload while
+    // the request id is still remembered. The resumed poll resolves to
+    // "approved" -- which must hand control back, not open the page.
+    await page.unroute('**/check-access*');
+    await page.route('**/check-access*', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json',
+        body: JSON.stringify({ status: 'approved', secret: SECRET }) }));
+
+    await page.evaluate(() => {
+      localStorage.setItem('pmCsEmail', 'stranger@else.com');
+      localStorage.setItem('pmCsReq:healthcare', 'req-approved');
+    });
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForTimeout(1500); // let the resumed poll resolve
+
+    check('did NOT auto-enter on reload', !(await contentShown()));
+    check('gate is showing', await gateVisible());
+    check('form view, not the waiting view', await page.isVisible('#pm-cs-gate-main'));
+    check('tells them they are approved',
+      /approved/i.test(await page.textContent('#pm-cs-access-status')),
+      await page.textContent('#pm-cs-access-status'));
+    check('email still prefilled', (await emailValue()) === 'stranger@else.com');
+    check('stale request id cleared',
+      (await page.evaluate(() => localStorage.getItem('pmCsReq:healthcare'))) === null);
+
+    // ...and one click still gets them straight in.
+    await page.click('#pm-cs-access-form button');
+    await page.waitForSelector('#pm-cs-doc h1', { timeout: 8000 });
+    check('one click opens it', await contentShown());
+  }
+
   console.log(failures === 0 ? '\nALL PASSED\n' : `\n${failures} FAILURE(S)\n`);
   await browser.close();
   process.exit(failures === 0 ? 0 : 1);

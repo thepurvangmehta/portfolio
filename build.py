@@ -1072,6 +1072,11 @@ def _cs_gate_access_js(api_url):
         # isn't hammering the Worker. Also poll the instant the tab regains
         # focus: approving on a phone and switching back should feel immediate
         # rather than waiting out whatever timer happened to be running.
+        # Auto-unlock is only legitimate inside the session where the visitor
+        # actually asked. On a fresh page load -- including a reload of a
+        # session whose request has since been approved -- resolving to
+        # "approved" must hand control back rather than opening the page.
+        "var autoUnlock=false;"
         "var pollTimer=null,pollStart=0,inFlight=false,pollDone=false,curReq=null;"
         "function stopPoll(){pollDone=true;curReq=null;"
         "if(pollTimer){clearTimeout(pollTimer);pollTimer=null;}}"
@@ -1087,7 +1092,9 @@ def _cs_gate_access_js(api_url):
         ".then(function(r){return r.json();})"
         ".then(function(d){inFlight=false;"
         "if(d.status==='approved'){stopPoll();localStorage.removeItem(LS_REQ);"
-        "unlockWith(d.secret,'Approved! Unlocking…');}"
+        "if(autoUnlock){unlockWith(d.secret,'Approved! Unlocking…');}"
+        "else{ab.textContent='Open case study';"
+        "showForm('You are approved. Open it whenever you are ready.');}}"
         "else if(d.status==='denied'){stopPoll();localStorage.removeItem(LS_REQ);"
         "showForm('That request was not approved.');}"
         "else if(d.status==='expired'){stopPoll();localStorage.removeItem(LS_REQ);"
@@ -1110,7 +1117,7 @@ def _cs_gate_access_js(api_url):
         "var email=ai.value.trim();if(!email)return;"
         # Submitting supersedes any request still being polled -- the visitor
         # may well have come back to change the address.
-        "stopPoll();localStorage.removeItem(LS_REQ);"
+        "stopPoll();localStorage.removeItem(LS_REQ);autoUnlock=true;"
         "ab.disabled=true;setStatus('Checking…',false);"
         "localStorage.setItem(LS_EMAIL,email);"
         "fetch(API+'/request-access',{method:'POST',headers:{'content-type':'application/json'},"
