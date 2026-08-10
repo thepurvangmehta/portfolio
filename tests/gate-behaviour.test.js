@@ -56,8 +56,12 @@ function check(name, cond, extra) {
   const contentShown = () => page.evaluate(() => !!document.querySelector('#pm-cs-doc h1'));
   const emailValue = () => page.inputValue('#pm-cs-access-form input[type=email]');
 
+  // 'load', never 'networkidle': once the gate opens, the showreel starts a
+  // looping <video>, so the network never goes idle and every 'networkidle'
+  // wait hangs until it times out. Each reload below pairs with an explicit
+  // waitForTimeout, which is what actually gives stray calls time to fire.
   console.log('\n== first visit: gate up, nothing prefilled ==');
-  await page.goto(URL_, { waitUntil: 'networkidle' });
+  await page.goto(URL_, { waitUntil: 'load' });
   check('gate is showing', await gateVisible());
   check('case study hidden', !(await contentShown()));
   check('email box empty', (await emailValue()) === '', await emailValue());
@@ -75,6 +79,32 @@ function check(name, cond, extra) {
     }));
     check('password path still available', await page.isVisible('.cs-gate-form input[type=password]'));
   }
+
+  // The gate autofocuses its lead field 60ms after render. If someone (or a
+  // password manager) is already typing when that fires, the focus jump sends
+  // the remaining characters into the other box -- which silently broke 3 of 8
+  // unlock attempts. Autofocus must yield to a field that already has focus.
+  console.log('\n== autofocus must not steal focus mid-typing ==');
+  {
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('#pm-cs-gate');
+    await page.focus('.cs-gate-form input[type=password]');   // beat the 60ms timer
+    await page.waitForTimeout(400);                            // let it fire
+    check('focus stayed in the password box', await page.evaluate(
+      () => document.activeElement === document.querySelector('.cs-gate-form input[type=password]')));
+
+    await page.type('.cs-gate-form input[type=password]', 'abcdefghij', { delay: 3 });
+    const split = await page.evaluate(() => ({
+      pw: document.querySelector('.cs-gate-form input[type=password]').value.length,
+      em: document.querySelector('#pm-cs-access-form input[type=email]').value.length,
+    }));
+    check('every character landed in the password box', split.pw === 10, split);
+    check('nothing leaked into the email box', split.em === 0, split);
+  }
+
+  console.log('\n== clean gate again before the password checks ==');
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('#pm-cs-gate');
 
   // Visibility alone is not the assertion that matters: the password box was
   // once visible but wired to nothing, because the gate script picked its
@@ -110,7 +140,7 @@ function check(name, cond, extra) {
   check('gate removed', !(await gateVisible()));
 
   console.log('\n== THE ASK: reload -> gate again, email prefilled, no auto-entry ==');
-  await page.reload({ waitUntil: 'networkidle' });
+  await page.reload({ waitUntil: 'load' });
   await page.waitForTimeout(1200); // give any stray auto-unlock a chance to fire
   check('gate is showing again', await gateVisible());
   check('did NOT auto-enter the case study', !(await contentShown()));
@@ -125,7 +155,7 @@ function check(name, cond, extra) {
   check(`unlocked on click (${Date.now() - t0}ms)`, await contentShown());
 
   console.log('\n== pressing Enter in the field works too ==');
-  await page.reload({ waitUntil: 'networkidle' });
+  await page.reload({ waitUntil: 'load' });
   check('gate back after reload', await gateVisible());
   await page.click('#pm-cs-access-form input[type=email]');
   await page.keyboard.press('Enter');
@@ -133,7 +163,7 @@ function check(name, cond, extra) {
   check('Enter key unlocked it', await contentShown());
 
   console.log('\n== the address is editable: a new one goes through request flow ==');
-  await page.reload({ waitUntil: 'networkidle' });
+  await page.reload({ waitUntil: 'load' });
   await page.fill('#pm-cs-access-form input[type=email]', 'stranger@else.com');
   check('field accepted a new address', (await emailValue()) === 'stranger@else.com');
   await page.click('#pm-cs-access-form button');
@@ -172,7 +202,7 @@ function check(name, cond, extra) {
     localStorage.setItem('pmCsEmail', 'stranger@else.com');
     localStorage.setItem('pmCsReq:healthcare', 'req-new');
   });
-  await page.reload({ waitUntil: 'networkidle' });
+  await page.reload({ waitUntil: 'load' });
   await page.waitForTimeout(600);
   check('waiting view restored', await page.isVisible('#pm-cs-wait'));
   check('address restored', (await page.textContent('#pm-cs-wait-email')) === 'stranger@else.com');
@@ -192,7 +222,7 @@ function check(name, cond, extra) {
       localStorage.setItem('pmCsEmail', 'stranger@else.com');
       localStorage.setItem('pmCsReq:healthcare', 'req-approved');
     });
-    await page.reload({ waitUntil: 'networkidle' });
+    await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(1500); // let the resumed poll resolve
 
     check('did NOT auto-enter on reload', !(await contentShown()));

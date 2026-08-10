@@ -1065,8 +1065,15 @@ CS_GATE_JS = (
     # Focus whatever the gate leads with: the email box when the request path
     # is built in, the password box otherwise. `i` is now explicitly the
     # password input, so it can no longer stand in for "the first field".
+    # Only claim focus if nothing else has it. This fires 60ms after the gate
+    # renders, which is long enough for a password manager (or anyone quick) to
+    # already be typing -- and stealing focus mid-entry sends the rest of the
+    # characters into the OTHER field. Measured: text inserted inside that
+    # window landed in neither box reliably, failing 3 unlocks out of 8.
     "var lead=g.querySelector('#pm-cs-access-form input')||i;"
-    "setTimeout(function(){lead.focus();},60);})();</script>")
+    "setTimeout(function(){var a=document.activeElement;"
+    "if(!a||a===document.body||a===document.documentElement)lead.focus();},60);"
+    "})();</script>")
 
 # Email-request path: lets a visitor ask for access instead of typing a
 # password. Talks to the Worker in worker/src/index.js. Only emitted when
