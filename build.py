@@ -911,29 +911,76 @@ def _cs_lessons(b, prefix):
     return (f'<section class="cs-block">{eb}{title}'
             f'<div class="cs-lessons-grid">{items}</div></section>')
 
+CS_REEL_BREAKPOINT_PX = 1024
+
+
+def _cs_reel_sources(vids, prefix):
+    return "".join(
+        f'<source src="{prefix}assets/video/{v}" '
+        f'type="video/{"webm" if v.lower().endswith(".webm") else "mp4"}">'
+        for v in vids)
+
+
 def _cs_showreel(b, prefix):
     """Top-of-page motion reel. Renders an autoplay/muted/loop <video> when
     `video` is set (a filename or list of filenames under assets/video/).
     Until a video exists, EVERY case study shows the same shared gradient
     placeholder (assets/images/hero-placeholder.webp) for consistency.
-    `ratio` sets the video frame (default 16/9)."""
+
+    `video_mobile` is an optional second set of files for the narrow, roughly
+    square reel band (see the <=1024px rule in case-study.css). The reel is a
+    full-bleed band whose ratio swings from about 1:1 on a phone to 2.9:1 on a
+    wide display, and object-fit:cover crops the difference -- one wide file
+    would lose ~two thirds of its width on a phone, so the two cuts are framed
+    separately rather than stretched from one master.
+
+    NOTE: the pair is chosen by the script below, NOT by `media` attributes on
+    <source>. `media` works in <picture> but browsers ignore it inside <video>
+    (verified: a 375px viewport still loaded the desktop file), so relying on
+    it would silently ship the wide cut to every phone.
+
+    `ratio` is accepted but currently unused -- the band's height comes from
+    case-study.css, not from this value."""
     ratio = b.get("ratio", "16 / 9")
     vids = b.get("video")
     if isinstance(vids, str):
         vids = [vids]
+    mob = b.get("video_mobile")
+    if isinstance(mob, str):
+        mob = [mob]
     cap = (f'<figcaption class="cs-caption">{_esc(b["caption"])}</figcaption>'
            if b.get("caption") else "")
     if vids:
-        srcs = "".join(
-            f'<source src="{prefix}assets/video/{v}" '
-            f'type="video/{"webm" if v.lower().endswith(".webm") else "mp4"}">'
-            for v in vids)
         poster_img = cs_image(b["poster"], b.get("alt", ""), prefix, "full") if b.get("poster") else None
         poster_attr = f' poster="{poster_img["src"]}"' if poster_img else ""
-        media = ('<video class="cs-reel-video" autoplay muted loop playsinline '
-                 f'preload="metadata"{poster_attr}>{srcs}'
-                 '<span class="cs-reel-placeholder">Your browser cannot play this video.</span>'
-                 '</video>')
+        if mob:
+            # Ship NO <source> children: whichever set the script picks is the
+            # only one the browser ever requests, so a phone never downloads
+            # the desktop cut (or vice versa). The <noscript> keeps the wide
+            # cut playable with JS off.
+            wide = json.dumps([f"{prefix}assets/video/{v}" for v in vids])
+            narrow = json.dumps([f"{prefix}assets/video/{v}" for v in mob])
+            # No <source> children and NO inline <script> here: on a gated page
+            # the body arrives via `doc.innerHTML = ...`, and scripts inserted
+            # through innerHTML never execute -- an inline picker would leave
+            # the reel with no sources at all. window.pmCsReel does the picking
+            # instead; it is called both after a gate unlock and at end of body
+            # on ungated pages, so it is the one hook that fires in both.
+            media = (
+                '<video class="cs-reel-video" autoplay muted loop playsinline '
+                f'preload="metadata"{poster_attr} '
+                f"data-reel-wide='{wide}' data-reel-narrow='{narrow}' "
+                f'data-reel-bp="{CS_REEL_BREAKPOINT_PX}">'
+                '<span class="cs-reel-placeholder">Your browser cannot play this video.</span>'
+                '</video>'
+                f'<noscript><video class="cs-reel-video" autoplay muted loop '
+                f'playsinline preload="metadata"{poster_attr}>'
+                f'{_cs_reel_sources(vids, prefix)}</video></noscript>')
+        else:
+            media = ('<video class="cs-reel-video" autoplay muted loop playsinline '
+                     f'preload="metadata"{poster_attr}>{_cs_reel_sources(vids, prefix)}'
+                     '<span class="cs-reel-placeholder">Your browser cannot play this video.</span>'
+                     '</video>')
     else:
         # shared gradient placeholder — consistent across every case study
         media = ('<img class="cs-reel-video cs-reel-video--img" loading="eager" decoding="async" '
@@ -1365,7 +1412,24 @@ CS_REVEAL_JS = (
 # controls so the visitor opts in. No-op when there is no reel.
 CS_REEL_JS = (
     "<script>window.pmCsReel=function(){"
-    "if(!(window.matchMedia&&matchMedia('(prefers-reduced-motion:reduce)').matches))return;"
+    # Attach the right cut for this viewport. `media` on <source> is ignored
+    # inside <video> (it only works in <picture>), so the pair is chosen here
+    # and only the chosen files are ever requested -- a phone never downloads
+    # the wide cut. Idempotent: re-running must not append a second set.
+    "[].forEach.call(document.querySelectorAll('video.cs-reel-video[data-reel-wide]'),"
+    "function(v){"
+    "if(v.dataset.reelReady)return;v.dataset.reelReady='1';"
+    "var bp=+v.dataset.reelBp||1024,narrow=window.matchMedia&&"
+    "matchMedia('(max-width:'+bp+'px)').matches;"
+    "try{var list=JSON.parse(narrow?v.dataset.reelNarrow:v.dataset.reelWide);"
+    "list.forEach(function(u){var s=document.createElement('source');"
+    "s.src=u;s.type='video/'+(/\\.webm$/i.test(u)?'webm':'mp4');v.appendChild(s);});"
+    "v.load();}catch(e){}});"
+    "if(!(window.matchMedia&&matchMedia('(prefers-reduced-motion:reduce)').matches)){"
+    # Autoplay can be refused (or lost across the gate's innerHTML swap), so
+    # ask explicitly and swallow the rejection rather than sitting on a poster.
+    "[].forEach.call(document.querySelectorAll('video.cs-reel-video'),function(v){"
+    "var p=v.play();if(p&&p.catch)p.catch(function(){});});return;}"
     "[].forEach.call(document.querySelectorAll('video.cs-reel-video'),function(v){"
     "try{v.pause();v.removeAttribute('autoplay');v.setAttribute('controls','');}catch(e){}});"
     "};</script>")

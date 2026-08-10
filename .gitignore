@@ -16,3 +16,7 @@ content/communication-saas.json
 # build time for the page <head>, but must not be committed to this public repo.
 src_healthcare.html
 src_communication-saas.html
+
+# Full-quality motion masters (huge). Encoded down into site/assets/video/
+# at ~1-2MB per file; the masters themselves are never published.
+video-masters/
