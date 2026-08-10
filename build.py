@@ -992,8 +992,14 @@ CS_GATE_JS = (
     "if(!g||!b||!doc)return;"
     "var blob=JSON.parse(b.textContent);"
     "document.documentElement.style.overflow='hidden';"
-    "var f=g.querySelector('form'),i=g.querySelector('input'),"
-    "e=g.querySelector('.cs-gate-err'),btn=g.querySelector('button');"
+    # Scope to the password form by class, never by document order. The email
+    # form (when CS_ACCESS_API_URL is set) sits ABOVE this one, so a bare
+    # querySelector('form'/'input'/'button') silently binds this decrypt
+    # handler to the email field and derives the AES key from an address --
+    # which always fails GCM auth, leaving the password box wired to nothing.
+    "var f=g.querySelector('.cs-gate-form');if(!f)return;"
+    "var i=f.querySelector('input'),"
+    "e=f.querySelector('.cs-gate-err'),btn=f.querySelector('button');"
     "function u8(s){var n=atob(s),a=new Uint8Array(n.length);"
     "for(var k=0;k<n.length;k++)a[k]=n.charCodeAt(k);return a;}"
     "f.addEventListener('submit',function(ev){ev.preventDefault();"
@@ -1009,7 +1015,11 @@ CS_GATE_JS = (
     "if(window.pmCsToc)window.pmCsToc();if(window.pmCsReveal)window.pmCsReveal();"
     "if(window.pmCsReel)window.pmCsReel();if(window.pmCsMedia)window.pmCsMedia();})"
     ".catch(function(){btn.disabled=false;e.hidden=false;i.value='';i.focus();});});"
-    "setTimeout(function(){i.focus();},60);})();</script>")
+    # Focus whatever the gate leads with: the email box when the request path
+    # is built in, the password box otherwise. `i` is now explicitly the
+    # password input, so it can no longer stand in for "the first field".
+    "var lead=g.querySelector('#pm-cs-access-form input')||i;"
+    "setTimeout(function(){lead.focus();},60);})();</script>")
 
 # Email-request path: lets a visitor ask for access instead of typing a
 # password. Talks to the Worker in worker/src/index.js. Only emitted when

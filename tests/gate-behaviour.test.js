@@ -13,6 +13,13 @@
 //   - clicking the CTA (or pressing Enter) unlocks immediately
 //   - the email stays editable and a different address still works
 const { chromium } = require('playwright');
+const fs = require('fs');
+// Prefer an explicit CHROMIUM_PATH, then the container image's baked-in
+// build, and otherwise let Playwright resolve its own download. Pinning the
+// container path unconditionally made this suite unrunnable anywhere else,
+// including on the machine the site is actually built from.
+const CHROMIUM = [process.env.CHROMIUM_PATH, '/opt/pw-browsers/chromium']
+  .find(p => p && fs.existsSync(p));
 const SECRET = process.env.GATE_SECRET || 'gate-test-pw';
 const URL_ = process.env.GATE_URL || 'http://localhost:8796/healthcare/';
 
@@ -23,7 +30,7 @@ function check(name, cond, extra) {
 }
 
 (async () => {
-  const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+  const browser = await chromium.launch(CHROMIUM ? { executablePath: CHROMIUM } : {});
   const ctx = await browser.newContext({ viewport: { width: 900, height: 900 } });
   const page = await ctx.newPage();
 
@@ -68,6 +75,32 @@ function check(name, cond, extra) {
     }));
     check('password path still available', await page.isVisible('.cs-gate-form input[type=password]'));
   }
+
+  // Visibility alone is not the assertion that matters: the password box was
+  // once visible but wired to nothing, because the gate script picked its
+  // form/input/button with bare first-match querySelectors and the email form
+  // sits above it. A wrong password must reach the decrypt path and be
+  // REJECTED, and the right one must unlock -- prove both, not just presence.
+  console.log('\n== the password path actually works, not just renders ==');
+  {
+    await page.fill('.cs-gate-form input[type=password]', 'definitely-not-the-password');
+    await page.click('.cs-gate-form button');
+    await page.waitForTimeout(1200);
+    check('wrong password is rejected', await page.isVisible('.cs-gate-form .cs-gate-err'));
+    check('wrong password leaves it locked', !(await contentShown()));
+
+    await page.fill('.cs-gate-form input[type=password]', SECRET);
+    await page.click('.cs-gate-form button');
+    await page.waitForSelector('#pm-cs-doc h1', { timeout: 8000 });
+    check('correct password unlocks', await contentShown());
+    check('gate removed after password unlock', !(await gateVisible()));
+    check('scroll lock released', await page.evaluate(
+      () => document.documentElement.style.overflow === ''));
+  }
+
+  console.log('\n== back to a clean gate for the email-path checks ==');
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('#pm-cs-gate');
 
   console.log('\n== enter an approved address -> unlocks ==');
   await page.fill('#pm-cs-access-form input[type=email]', 'known@acme.com');
