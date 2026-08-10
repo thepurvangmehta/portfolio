@@ -186,8 +186,13 @@ section.cs-block{max-width:var(--cs-max);padding-block:var(--cs-section-y)}
    it. Height is capped so the title below stays visible. The `main.cs > .cs-reel`
    selector out-specifies the `main.cs > * {margin:auto}` centering rule. */
 main.cs > .cs-reel{margin-left:calc(50% - 50vw);margin-right:calc(50% - 50vw)}
+/* The 900px ceiling only binds on TALL viewports (over ~1400px high), where
+   64vh would otherwise be clamped to 660 and stretch the band to 3.9:1 -- wide
+   enough that a 2.1:1 reel lost 45% of its height and visibly clipped the tops
+   and bottoms of the phones in it. Laptops sit under the ceiling on 64vh and
+   are unaffected. */
 .cs-reel{width:100vw;max-width:none;margin-top:0;
-  height:clamp(360px,64vh,660px);overflow:hidden;background:var(--ds-surface-raised)}
+  height:clamp(360px,64vh,900px);overflow:hidden;background:var(--ds-surface-raised)}
 .cs-reel-fig{margin:0;min-width:0;height:100%}
 .cs-reel-video,.cs-reel-video--img{display:block;width:100%;height:100%;
   object-fit:cover;object-position:center}
@@ -195,6 +200,21 @@ main.cs > .cs-reel{margin-left:calc(50% - 50vw);margin-right:calc(50% - 50vw)}
   width:100%;height:100%;background:var(--ds-surface);
   color:var(--ds-ink-soft);font:500 var(--ds-text-md)/1 var(--ds-font-sans)}
 .cs-reel .cs-caption{max-width:var(--cs-max);margin:var(--ds-space-4) auto 0;padding:0 var(--ds-space-6)}
+/* Below 1024px the band goes square and the reel switches to its narrow cut
+   (see `video_mobile` in _cs_showreel, same 1024px breakpoint). The 64vh rule
+   above makes the band TALLER THAN IT IS WIDE on a phone -- 393x545, a portrait
+   frame -- which cropped ~30% off the sides of a square video and ~66% off a
+   wide one. A 1:1 band matches the narrow cut almost exactly, so the framing
+   the reel was composed with is what actually gets seen. Keep this breakpoint
+   and `CS_REEL_BREAKPOINT_PX` in build.py in step. */
+@media (max-width:1024px){
+  /* max-height matters: a bare 1:1 band is as tall as the viewport is WIDE, so
+     a short-but-wide window (1024x800) would hand the reel a 1024px-tall band
+     and push the title off screen entirely. Cap it at 80vh so the reel can
+     never own the whole first screen; narrow phones are nowhere near the cap
+     and keep the exact 1:1 framing. */
+  .cs-reel{height:auto;aspect-ratio:1/1;max-height:80vh}
+}
 
 /* ---- media: strict, count-driven image grid --------------------------------
    No container, no panel, no padding around images. Each image is just an image
