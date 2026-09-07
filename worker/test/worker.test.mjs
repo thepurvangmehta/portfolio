@@ -28,9 +28,12 @@ const DB = {
 };
 
 let pushoverCalls = [];
+// Swap this to make Pushover reject or vanish. A phone that has been reset and
+// not re-registered shows up as exactly this: a 4xx the Worker used to ignore.
+let pushoverReply = () => new Response('{"status":1,"request":"abc"}', { status: 200 });
 globalThis.fetch = async (url, opts) => {
   pushoverCalls.push({ url, body: opts && opts.body && opts.body.toString() });
-  return new Response('{"status":1}', { status: 200 });
+  return pushoverReply();
 };
 
 const env = {
@@ -266,6 +269,74 @@ console.log('\n== contacts survive the 7-day purge of requests ==');
   db.prepare('DELETE FROM requests').run();   // simulate the purge
   const after = (await (await call('/admin?key=super-secret-admin-key')).text()).includes('jane@acme.com');
   check('contact still listed after requests are gone', before && after);
+}
+
+console.log('\n== a dead push channel is recorded, surfaced, and non-fatal ==');
+{
+  // What a wiped phone actually looks like from here.
+  pushoverReply = () => new Response(
+    '{"status":0,"request":"x","errors":["user identifier is not a valid user, group, or subscribed user key"]}',
+    { status: 400 });
+
+  const r = await postJson('/request-access', { email: 'deadpush@x.com' }, { 'CF-Connecting-IP': '10.10.10.1' });
+  const j = await r.json();
+  check('visitor still gets 200 pending', r.status === 200 && j.status === 'pending', j);
+  check('request row still stored', !!j.requestId, j);
+
+  const row = db.prepare('SELECT notified_at, notify_error FROM requests WHERE id = ?1').get(j.requestId);
+  check('failure recorded on the request', !!row.notify_error && row.notified_at === null, row);
+  check('reason kept verbatim', /not a valid user/.test(row.notify_error), row.notify_error);
+
+  const body = await (await call('/admin?key=super-secret-admin-key')).text();
+  check('admin banner shouts about it', /NOT being delivered/.test(body));
+  check('banner shows the Pushover reason', /not a valid user/.test(body));
+  check('pending row marked not pushed', /not pushed/.test(body));
+  check('banner tells you how to fix it', /PUSHOVER_USER/.test(body));
+}
+{
+  // Pushover unreachable entirely must not 500 the visitor either.
+  pushoverReply = () => { throw new Error('connection reset'); };
+  const r = await postJson('/request-access', { email: 'netfail@x.com' }, { 'CF-Connecting-IP': '10.10.10.2' });
+  const j = await r.json();
+  check('network failure -> still 200 pending', r.status === 200 && j.status === 'pending', { s: r.status, j });
+  const row = db.prepare('SELECT notify_error FROM requests WHERE id = ?1').get(j.requestId);
+  check('network failure recorded', /could not reach Pushover/.test(row.notify_error || ''), row);
+}
+
+console.log('\n== /admin/push-test ==');
+{
+  const locked = await call('/admin/push-test');
+  check('no key -> 404', locked.status === 404, locked.status);
+
+  pushoverReply = () => new Response('{"status":0,"errors":["user is valid but has no active devices"]}', { status: 400 });
+  const bad = await call('/admin/push-test?key=super-secret-admin-key');
+  const badBody = await bad.text();
+  check('failing test is not a 200', bad.status === 502, bad.status);
+  check('failing test names the reason', /no active devices/.test(badBody));
+
+  pushoverReply = () => new Response('{"status":1,"request":"abc"}', { status: 200 });
+  const before = pushoverCalls.length;
+  const good = await call('/admin/push-test?key=super-secret-admin-key');
+  const goodBody = await good.text();
+  check('a message was actually sent', pushoverCalls.length === before + 1, pushoverCalls.length - before);
+  check('success page 200', good.status === 200, good.status);
+  check('success page says accepted', /Pushover accepted/.test(goodBody));
+  check('test carries no gate password', !goodBody.includes(env.GATE_PASSWORD));
+}
+
+console.log('\n== a healthy channel reads as healthy ==');
+{
+  const j = await (await postJson('/request-access', { email: 'healthy@x.com' }, { 'CF-Connecting-IP': '10.10.10.3' })).json();
+  const row = db.prepare('SELECT notified_at, notify_error FROM requests WHERE id = ?1').get(j.requestId);
+  check('success recorded', !!row.notified_at && row.notify_error === null, row);
+  const body = await (await call('/admin?key=super-secret-admin-key')).text();
+  check('banner reads healthy', /Push notifications are working/.test(body));
+  check('no false alarm', !/NOT being delivered/.test(body));
+
+  const h = await (await call('/health')).json();
+  check('health reports push configured', h.pushConfigured === true, h);
+  const unset = await worker.fetch(new Request(BASE + '/health'), { ...env, PUSHOVER_USER: undefined });
+  check('health reports push unconfigured', (await unset.json()).pushConfigured === false);
 }
 
 console.log(failures === 0 ? '\nALL PASSED\n' : `\n${failures} FAILURE(S)\n`);
