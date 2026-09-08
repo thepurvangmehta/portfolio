@@ -228,9 +228,17 @@ async function countSince(env, column, value, since) {
 // Pushover meters per account (10k/month), so no stranger's traffic can starve
 // it. Do not swap back to an IP-metered service without re-checking that.
 
+// "one of these is missing" sends you round every variable you already set.
+// Name the ones actually absent, and a typo'd name reads as the real one
+// missing -- which is the same fix either way: check the spelling in Cloudflare.
+function missingVars(env, names) {
+  return names.filter((n) => !env[n] || !String(env[n]).trim());
+}
+
 async function postToPushover(env, fields) {
-  if (!env.PUSHOVER_TOKEN || !env.PUSHOVER_USER) {
-    return { ok: false, detail: "PUSHOVER_TOKEN and/or PUSHOVER_USER are not set on this Worker" };
+  const missing = missingVars(env, ["PUSHOVER_TOKEN", "PUSHOVER_USER"]);
+  if (missing.length) {
+    return { ok: false, detail: `not set on this Worker: ${missing.join(", ")} (check the spelling in Settings -> Variables)` };
   }
   let res, text;
   try {
@@ -274,8 +282,9 @@ async function sendPushover(env, selfOrigin, email, requestId) {
 }
 
 async function postEmail(env, { subject, html, to, replyTo }) {
-  if (!env.RESEND_TOKEN || !env.NOTIFY_EMAIL_TO || !env.NOTIFY_EMAIL_FROM) {
-    return { ok: false, detail: "RESEND_TOKEN, NOTIFY_EMAIL_TO and NOTIFY_EMAIL_FROM are not all set on this Worker" };
+  const missing = missingVars(env, ["RESEND_TOKEN", "NOTIFY_EMAIL_TO", "NOTIFY_EMAIL_FROM"]);
+  if (missing.length) {
+    return { ok: false, detail: `not set on this Worker: ${missing.join(", ")} (check the spelling in Settings -> Variables)` };
   }
   let res, text;
   try {

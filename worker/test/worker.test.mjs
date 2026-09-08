@@ -453,5 +453,22 @@ console.log('\n== inviting someone whose request never reached you ==');
   check('and they now show as having access', /7d left|168h left|\d+h left/.test(after));
 }
 
+console.log('\n== a missing setting names itself ==');
+{
+  const partial = { ...env, NOTIFY_EMAIL_FROM: undefined };
+  const r = await worker.fetch(new Request(BASE + '/admin/notify-test?key=super-secret-admin-key'), partial);
+  const body = await r.text();
+  check('names the one that is missing', /not set on this Worker: NOTIFY_EMAIL_FROM/.test(body));
+  check('does not blame the ones that are set', !/RESEND_TOKEN, NOTIFY_EMAIL_TO/.test(body));
+
+  const blank = { ...env, RESEND_TOKEN: '   ' };
+  const r2 = await worker.fetch(new Request(BASE + '/admin/notify-test?key=super-secret-admin-key'), blank);
+  check('whitespace counts as missing', /not set on this Worker: RESEND_TOKEN/.test(await r2.text()));
+
+  const noPush = { ...env, PUSHOVER_USER: undefined };
+  const r3 = await worker.fetch(new Request(BASE + '/admin/notify-test?key=super-secret-admin-key'), noPush);
+  check('same for Pushover', /not set on this Worker: PUSHOVER_USER/.test(await r3.text()));
+}
+
 console.log(failures === 0 ? '\nALL PASSED\n' : `\n${failures} FAILURE(S)\n`);
 process.exit(failures === 0 ? 0 : 1);
