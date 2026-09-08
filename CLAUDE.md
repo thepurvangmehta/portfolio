@@ -102,6 +102,15 @@ notified with Approve/Deny links → the browser polls `/check-access`.
 Approval is global (opens every gated case study) and lasts 4 hours. Invites
 sent from `/admin` last 7 days, deliberately — see `worker/README.md`.
 
+**The gate password is an encryption key, not a credential.** It cannot be
+reset without re-encrypting, and the encrypted backups in `content/.backups/`
+are the only committed copy of the gated sources. Never run a build with a new
+password before confirming the plaintext `content/<slug>.json` files exist — the
+build overwrites those backups. Recovery paths, in order: macOS Keychain
+(`portfolio-gate-pw`), `.gate_pw`, or a temporary admin-guarded route on the
+Worker returning `env.GATE_PASSWORD` (it must hold a working copy to function).
+See README.md → "If you lose the gate password".
+
 This is a speed bump and a lead-capture form, not confidentiality: the
 ciphertext is public, the password is global, and anyone approved can share
 what they decrypt. Do not let anyone believe otherwise.

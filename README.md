@@ -32,6 +32,36 @@ a Cloudflare Worker in `worker/`. It is **deployed separately and by hand** —
 (setup, endpoints, what the admin banner means, what to do when notifications
 stop) and **`CLAUDE.md`** for the constraints that apply to the repo as a whole.
 
+### If you lose the gate password
+
+`CS_GATE_PW` / `GATE_PASSWORD` is not a password that can be reset — it is the
+AES key the gated case studies (`healthcare`, `communication-saas`) are
+encrypted with, including the backups in `content/.backups/`. Lose it and that
+content is unrecoverable, so **do not rebuild with a new one until you have
+confirmed the plaintext `content/<slug>.json` files still exist** — a build
+overwrites those backups under the new key.
+
+Three places it lives, in the order worth checking:
+
+1. **macOS Keychain** on the author's Mac:
+   `security find-generic-password -a "$USER" -s portfolio-gate-pw -w`
+   (or Keychain Access → search `portfolio-gate-pw`)
+2. **`.gate_pw`** in the repo root (gitignored).
+3. **The Worker.** It holds the password as the `GATE_PASSWORD` secret and hands
+   it to approved visitors, so it always has a working copy. Cloudflare will not
+   display an encrypted secret, but the Worker can be temporarily given an
+   admin-key-guarded route that returns `env.GATE_PASSWORD` — read it once, then
+   remove the route and redeploy. This is the reliable last resort.
+
+**It should also be in a password manager.** The Keychain copy dies with the
+machine, and it is the only key to two case studies.
+
+To rotate it: recover any missing sources with `decrypt_backup.py`, set the new
+value in the Keychain (`security add-generic-password -U -A -a "$USER" -s
+portfolio-gate-pw -w`), run `./deploy.sh`, then immediately update
+`GATE_PASSWORD` on the Worker. Between those last two steps approved visitors
+see "Approved, but this page could not be unlocked", so do them back to back.
+
 If notifications ever go quiet, start at
 `https://case-study-access.thepurvangmehta.workers.dev/admin?key=<ADMIN_KEY>` —
 the banner at the top says whether alerts are being delivered, and every request
