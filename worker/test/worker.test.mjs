@@ -27,16 +27,16 @@ const DB = {
   async batch(stmts) { return stmts.map((s) => s._exec()); },
 };
 
-// Two channels now, so the shim routes by host and each can be failed on its
-// own. A phone that was reset and never re-subscribed shows up as an ntfy
-// rejection -- the kind the Worker used to ignore.
-let ntfyCalls = [], emailCalls = [];
-let ntfyReply = () => new Response('{"id":"m1","topic":"t"}', { status: 200 });
+// Two channels, so the shim routes by host and each can be failed on its own.
+// A phone that was wiped and never re-registered shows up as a Pushover
+// rejection -- the kind the Worker used to ignore, which is the whole bug.
+let pushCalls = [], emailCalls = [];
+let pushReply = () => new Response('{"status":1,"request":"abc"}', { status: 200 });
 let emailReply = () => new Response('{"id":"e1"}', { status: 200 });
 globalThis.fetch = async (url, opts) => {
   const u = String(url);
   const body = opts && opts.body && opts.body.toString();
-  if (u.includes('ntfy')) { ntfyCalls.push({ u, body }); return ntfyReply(); }
+  if (u.includes('pushover')) { pushCalls.push({ u, body }); return pushReply(); }
   if (u.includes('resend')) { emailCalls.push({ u, body }); return emailReply(); }
   throw new Error('unexpected outbound fetch: ' + u);
 };
@@ -44,7 +44,8 @@ globalThis.fetch = async (url, opts) => {
 const env = {
   DB,
   GATE_PASSWORD: 'the-real-gate-password',
-  NTFY_TOPIC: 'a-long-random-topic',
+  PUSHOVER_TOKEN: 'ptoken',
+  PUSHOVER_USER: 'puser',
   RESEND_TOKEN: 're_test',
   NOTIFY_EMAIL_TO: 'me@example.com',
   NOTIFY_EMAIL_FROM: 'Access <access@example.com>',
@@ -91,14 +92,10 @@ let reqId;
   const j = await r.json();
   reqId = j.requestId;
   check('returns pending + requestId', j.status === 'pending' && !!j.requestId, j);
-  check('ntfy notified once', ntfyCalls.length === 1, ntfyCalls.length);
-  check('no email while ntfy works', emailCalls.length === 0, emailCalls.length);
-  check('notification carries approve link', (ntfyCalls[0].body || '').includes(reqId));
-  check('approve is a one-tap http action', /"action":"http"/.test(ntfyCalls[0].body || ''));
-  // Public ntfy topics are readable by anyone who knows them, so the address
-  // is masked unless NTFY_TOKEN says the topic is access controlled.
-  check('address masked on an untokened topic', (ntfyCalls[0].body || '').includes('j***@acme.com'));
-  check('full address NOT broadcast', !(ntfyCalls[0].body || '').includes('jane@acme.com'));
+  check('pushover notified once', pushCalls.length === 1, pushCalls.length);
+  check('no email while pushover works', emailCalls.length === 0, emailCalls.length);
+  check('notification carries approve link', (pushCalls[0].body || '').includes(reqId));
+  check('notification names the requester', (pushCalls[0].body || '').includes('jane%40acme.com'));
   check('secret NOT leaked while pending', !JSON.stringify(j).includes(env.GATE_PASSWORD), j);
 }
 {
@@ -124,10 +121,10 @@ let reqId;
   check('email now globally approved', j.status === 'approved' && j.secret === env.GATE_PASSWORD, j);
 }
 {
-  const before = ntfyCalls.length;
+  const before = pushCalls.length;
   const j = await (await postJson('/request-access', { email: 'jane@acme.com' }, { 'CF-Connecting-IP': '1.1.1.1' })).json();
   check('approved email short-circuits', j.status === 'approved' && j.secret === env.GATE_PASSWORD, j);
-  check('no new notification sent', ntfyCalls.length === before, ntfyCalls.length);
+  check('no new notification sent', pushCalls.length === before, pushCalls.length);
 }
 {
   const r = await call(`/approve?token=${reqId}`);
@@ -284,44 +281,36 @@ console.log('\n== contacts survive the 7-day purge of requests ==');
   check('contact still listed after requests are gone', before && after);
 }
 
-console.log('\n== an access-controlled topic may carry the full address ==');
+console.log('\n== Pushover dies -> email fallback carries it, and says so ==');
 {
-  const tokened = { ...env, NTFY_TOKEN: 'tk_secret' };
-  const before = ntfyCalls.length;
-  await worker.fetch(new Request(BASE + '/request-access', {
-    method: 'POST', body: JSON.stringify({ email: 'full@acme.com' }),
-    headers: { 'content-type': 'application/json', 'CF-Connecting-IP': '11.1.1.1' } }), tokened);
-  const body = ntfyCalls[before].body || '';
-  check('token unmasks the address', body.includes('full@acme.com'), body.slice(0, 120));
-}
-
-console.log('\n== ntfy dies -> email fallback carries it, and says so ==');
-{
-  // A phone reset and never re-subscribed, from the Worker's point of view.
-  ntfyReply = () => new Response('{"code":40801,"error":"topic not found"}', { status: 404 });
+  // A wiped phone that was never re-registered, from the Worker's point of view.
+  pushReply = () => new Response(
+    '{"status":0,"errors":["user identifier is not a valid user, group, or subscribed user key"]}',
+    { status: 400 });
   const before = emailCalls.length;
 
   const r = await postJson('/request-access', { email: 'fallback@x.com' }, { 'CF-Connecting-IP': '10.10.10.1' });
   const j = await r.json();
   check('visitor still gets 200 pending', r.status === 200 && j.status === 'pending', j);
   check('email fallback fired', emailCalls.length === before + 1, emailCalls.length - before);
-  check('fallback email carries the full address', (emailCalls[before].body || '').includes('fallback@x.com'));
+  check('fallback email names the requester', (emailCalls[before].body || '').includes('fallback@x.com'));
 
   const row = db.prepare('SELECT notified_at, notified_via, notify_error FROM requests WHERE id = ?1').get(j.requestId);
   check('recorded as delivered', !!row.notified_at, row);
   check('recorded as delivered by email', row.notified_via === 'email', row);
   // The point of the fallback: it must not hide that the phone stopped working.
-  check('primary failure kept anyway', /topic not found/.test(row.notify_error || ''), row.notify_error);
+  check('primary failure kept anyway', /not a valid user/.test(row.notify_error || ''), row.notify_error);
 
   const body = await (await call('/admin?key=super-secret-admin-key')).text();
   check('banner is amber, not green', /only by the fallback/.test(body));
   check('banner is not a false all-clear', !/Notifications are working/.test(body));
-  check('banner shows ntfy\'s reason', /topic not found/.test(body));
+  check('banner shows the Pushover reason', /not a valid user/.test(body));
+  check('banner tells you how to fix it', /PUSHOVER_USER/.test(body));
 }
 
 console.log('\n== both channels dead: recorded, surfaced, still non-fatal ==');
 {
-  ntfyReply = () => new Response('{"error":"topic not found"}', { status: 404 });
+  pushReply = () => new Response('{"status":0,"errors":["no active devices"]}', { status: 400 });
   emailReply = () => new Response('{"message":"domain not verified"}', { status: 403 });
 
   const r = await postJson('/request-access', { email: 'nochannel@x.com' }, { 'CF-Connecting-IP': '10.10.10.2' });
@@ -329,7 +318,7 @@ console.log('\n== both channels dead: recorded, surfaced, still non-fatal ==');
   check('visitor still gets 200 pending', r.status === 200 && j.status === 'pending', j);
   const row = db.prepare('SELECT notified_at, notified_via, notify_error FROM requests WHERE id = ?1').get(j.requestId);
   check('recorded as undelivered', row.notified_at === null && row.notified_via === null, row);
-  check('both reasons kept', /topic not found/.test(row.notify_error) && /domain not verified/.test(row.notify_error), row.notify_error);
+  check('both reasons kept', /no active devices/.test(row.notify_error) && /domain not verified/.test(row.notify_error), row.notify_error);
 
   const body = await (await call('/admin?key=super-secret-admin-key')).text();
   check('banner is red', /NOT being delivered/.test(body));
@@ -337,7 +326,7 @@ console.log('\n== both channels dead: recorded, surfaced, still non-fatal ==');
 }
 {
   // An unreachable network must not 500 the visitor either.
-  ntfyReply = () => { throw new Error('connection reset'); };
+  pushReply = () => { throw new Error('connection reset'); };
   const r = await postJson('/request-access', { email: 'netfail@x.com' }, { 'CF-Connecting-IP': '10.10.10.3' });
   check('network failure -> still 200 pending', r.status === 200, r.status);
   const j = await r.json();
@@ -350,38 +339,38 @@ console.log('\n== /admin/notify-test tests each channel separately ==');
   const locked = await call('/admin/notify-test');
   check('no key -> 404', locked.status === 404, locked.status);
 
-  ntfyReply = () => new Response('{"error":"topic not found"}', { status: 404 });
+  pushReply = () => new Response('{"status":0,"errors":["no active devices"]}', { status: 400 });
   emailReply = () => new Response('{"id":"e1"}', { status: 200 });
   const partial = await call('/admin/notify-test?key=super-secret-admin-key');
   const pBody = await partial.text();
   check('a working fallback keeps it a 200', partial.status === 200, partial.status);
-  check('names the failing channel', /ntfy \(your phone\): failed/.test(pBody));
+  check('names the failing channel', /Pushover \(your phone\): failed/.test(pBody));
   check('names the working one', /Email fallback: sent/.test(pBody));
-  check('shows the reason', /topic not found/.test(pBody));
+  check('shows the reason', /no active devices/.test(pBody));
 
-  ntfyReply = () => new Response('{"id":"m1"}', { status: 200 });
-  const nBefore = ntfyCalls.length, eBefore = emailCalls.length;
+  pushReply = () => new Response('{"status":1}', { status: 200 });
+  const pBefore = pushCalls.length, eBefore = emailCalls.length;
   const good = await call('/admin/notify-test?key=super-secret-admin-key');
   const gBody = await good.text();
-  check('both channels really sent', ntfyCalls.length === nBefore + 1 && emailCalls.length === eBefore + 1);
+  check('both channels really sent', pushCalls.length === pBefore + 1 && emailCalls.length === eBefore + 1);
   check('200', good.status === 200, good.status);
-  check('both reported sent', /ntfy \(your phone\): sent/.test(gBody) && /Email fallback: sent/.test(gBody));
+  check('both reported sent', /Pushover \(your phone\): sent/.test(gBody) && /Email fallback: sent/.test(gBody));
   check('test leaks no gate password', !gBody.includes(env.GATE_PASSWORD));
-  check('test notification carries no approve link', !/\/approve\?token=/.test(ntfyCalls[nBefore].body || ''));
+  check('test notification carries no approve link', !/approve%3Ftoken/.test(pushCalls[pBefore].body || ''));
 }
 
 console.log('\n== a healthy channel reads as healthy ==');
 {
   const j = await (await postJson('/request-access', { email: 'healthy@x.com' }, { 'CF-Connecting-IP': '10.10.10.4' })).json();
   const row = db.prepare('SELECT notified_at, notified_via, notify_error FROM requests WHERE id = ?1').get(j.requestId);
-  check('success recorded via ntfy', !!row.notified_at && row.notified_via === 'ntfy' && row.notify_error === null, row);
+  check('success recorded via pushover', !!row.notified_at && row.notified_via === 'pushover' && row.notify_error === null, row);
   const body = await (await call('/admin?key=super-secret-admin-key')).text();
   check('banner reads healthy', /Notifications are working/.test(body));
   check('no false alarm', !/NOT being delivered/.test(body) && !/only by the fallback/.test(body));
 
   const h = await (await call('/health')).json();
-  check('health lists both channels', JSON.stringify(h.notifyChannels) === '["ntfy","email"]', h);
-  const bare = await worker.fetch(new Request(BASE + '/health'), { ...env, NTFY_TOPIC: undefined, RESEND_TOKEN: undefined });
+  check('health lists both channels', JSON.stringify(h.notifyChannels) === '["pushover","email"]', h);
+  const bare = await worker.fetch(new Request(BASE + '/health'), { ...env, PUSHOVER_USER: undefined, RESEND_TOKEN: undefined });
   check('health lists none when unset', JSON.stringify((await bare.json()).notifyChannels) === '[]');
 }
 

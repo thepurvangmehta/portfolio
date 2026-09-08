@@ -32,19 +32,14 @@ the workload KV's caching model is wrong for.
    - `GATE_PASSWORD` - must exactly match `CS_GATE_PW` used by `build.py`
    - `ADMIN_KEY` - any long random string; it is the password to the
      collected-email page below
-   - `NTFY_TOPIC` - the ntfy topic your phone subscribes to. **Generate it,
-     do not name it** (see the warning below):
-     `openssl rand -hex 16`
-   - `NTFY_TOKEN` - *optional.* Only for an access-controlled topic (ntfy Pro
-     or self-hosted). Setting it also unmasks the requester's address in the
-     notification.
+   - `PUSHOVER_TOKEN` - application token from pushover.net
+   - `PUSHOVER_USER` - your Pushover user key
    - `RESEND_TOKEN`, `NOTIFY_EMAIL_TO`, `NOTIFY_EMAIL_FROM` - *optional*, the
      email fallback. `NOTIFY_EMAIL_FROM` must be a verified Resend sender,
      e.g. `Access <access@thepurvangmehta.com>`.
-4. **Set the plain vars**: `ALLOWED_ORIGIN` to `https://thepurvangmehta.com`,
-   and `NTFY_SERVER` only if you self-host ntfy (defaults to `https://ntfy.sh`).
-5. **Subscribe the phone**: install [ntfy](https://ntfy.sh/), add a
-   subscription to that exact topic, allow notifications.
+4. **Set the plain var** `ALLOWED_ORIGIN` to `https://thepurvangmehta.com`.
+5. **Register the phone**: install Pushover, sign in to that account, and
+   confirm the device is listed at [pushover.net](https://pushover.net/).
 6. **Deploy** the code in `src/index.js` (paste it into the dashboard editor,
    or `wrangler deploy` from this directory).
 7. **Verify** at `/admin/notify-test?key=<ADMIN_KEY>`, from the phone.
@@ -95,50 +90,42 @@ Two things to know:
 | `GET /deny?token=` | the Deny link |
 | `GET /admin?key=` | collected emails, pending approvals, push status, CSV link |
 | `GET /admin/emails.csv?key=` | CSV export of every address |
-| `GET /admin/notify-test?key=` | tests ntfy and email separately, shows what each said |
+| `GET /admin/notify-test?key=` | tests Pushover and email separately, shows what each said |
 | `GET /health` | binding sanity check |
 
 ## How you get told
 
 Two independent channels, tried in order:
 
-1. **ntfy** (`https://ntfy.sh`) - the buzz on your phone. The notification
-   carries **Approve** and **Deny** as ntfy `http` actions, so one tap fires
-   the request straight from the notification shade without opening a browser.
-2. **Email via Resend** - the fallback, only used when ntfy fails. No app, no
-   device binding, nothing to lose when a phone is replaced.
+1. **Pushover** - the buzz on your phone, with Approve/Deny in the notification.
+2. **Email via Resend** - the fallback, only used when Pushover fails. No app,
+   no device registration, nothing to lose when a phone is replaced.
 
 A fallback is only worth having if it cannot *hide* the primary's failure, so a
-request delivered by email alone is recorded as delivered **and** as an ntfy
+request delivered by email alone is recorded as delivered **and** as a Pushover
 error, and `/admin` shows it amber rather than green. Silent degradation is the
-failure mode this file is built to avoid.
+failure mode this file exists to prevent.
 
-### The topic name is a password, not a name
+### Why not ntfy (or anything else metered per IP)
 
-On the public ntfy.sh server there is no access control: **anyone who knows a
-topic can subscribe to it, and anyone subscribed sees these notifications -
-which contain links that grant access.** Someone who learned your topic could
-request access with their own address and approve themselves. A leaked topic is
-a leaked gate.
+This was tried and reverted. ntfy's free tier allows **250 messages per day per
+IP address**, and a Cloudflare Worker has no IP of its own - outbound requests
+share Cloudflare's address pool with every other customer's Worker. The quota
+was already spent by strangers, so ntfy returned `HTTP 429 daily message quota
+reached` on the *second* message ever sent. That would recur unpredictably
+forever.
 
-That is an acceptable model *only* because it is the same one `/admin?key=` already
-uses: the string is the credential. So:
-
-- Generate the topic (`openssl rand -hex 16`). Never a guessable name like
-  `purvang-portfolio`.
-- Never paste it into a screenshot, a shared doc, or a commit.
-- The requester's address is **masked** in the ntfy payload (`j***@acme.com`) so
-  a leaked topic leaks less. The domain survives, which is what you actually
-  judge on; the full address is on `/admin` and in the fallback email.
-- To revoke, change `NTFY_TOPIC` and re-subscribe the phone.
-- To remove the caveat entirely, use an access-controlled topic (ntfy Pro or
-  self-hosted) and set `NTFY_TOKEN`. That also unmasks the address.
+Pushover meters per account (10,000 messages/month free, and this Worker sends
+single figures), so nobody else's traffic can starve it. **Before swapping in
+any new provider, check how it meters.** Per-IP limits do not work from here.
 
 ## When notifications stop
 
-The most likely cause is the phone: **a reset or reinstalled handset loses its
-ntfy subscriptions**, even though the topic itself never changes. Nothing
-server-side needs updating - just re-subscribe.
+The likeliest cause is the phone: a wiped or reinstalled handset is
+de-registered from Pushover, even though your user key never changes. Signing
+back in on the phone is the whole fix - nothing server-side needs updating.
+(Signing *up* again rather than in gives you a new user key, which does need
+copying into `PUSHOVER_USER`.)
 
 1. Open `/admin?key=<ADMIN_KEY>`. The banner says whether the last notification
    was delivered and by which channel, and prints the failure verbatim if not.
@@ -146,16 +133,18 @@ server-side needs updating - just re-subscribe.
 2. Hit **Test both channels** from the phone. Each is reported separately - the
    fallback working is not evidence that your phone does.
 3. Fix per the error:
-   - *ntfy failed, email worked* (amber banner) -> re-subscribe the phone to the
-     topic in `NTFY_TOPIC`.
-   - *topic not found / 4xx from ntfy* -> `NTFY_TOPIC` is wrong, or `NTFY_TOKEN`
-     is set but not valid for that topic.
+   - *Pushover failed, email worked* (amber banner) -> the phone. Re-install /
+     sign back in, and check the device at pushover.net.
+   - *not a valid user/group key* -> the account behind `PUSHOVER_USER` was
+     re-created. Copy the current key from pushover.net into that secret.
+   - *no active devices* -> account is right, no handset registered.
+   - *application token is invalid* -> same, for `PUSHOVER_TOKEN`.
    - *Resend 403 / domain not verified* -> `NOTIFY_EMAIL_FROM` is not a verified
      sender on your Resend domain.
    - *could not reach ...* -> transient; re-test.
 4. Re-test until the banner is green. `/health` lists `notifyChannels`, which
-   only tells you what is configured, not that it works - the banner and the
-   test are what prove delivery.
+   only says what is configured, not that it works - the banner and the test are
+   what prove delivery.
 
 Changing a secret takes effect immediately; no redeploy is needed.
 
