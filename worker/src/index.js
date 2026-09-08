@@ -4,8 +4,8 @@
 //   1. Visitor POSTs their email to /request-access.
 //   2. If that email is already approved, the gate password ships back
 //      immediately and the browser decrypts as usual.
-//   3. Otherwise a pending request is stored and a Pushover notification
-//      is sent with Approve/Deny links.
+//   3. Otherwise a pending request is stored and you are notified with
+//      Approve/Deny links -- ntfy first, email as the fallback.
 //   4. The browser polls /check-access until the request resolves.
 //   5. Tapping Approve/Deny hits /approve or /deny. An approval grants that
 //      email every gated case study for ACCESS_TTL_MS (4 hours), after which
@@ -24,12 +24,18 @@
 //   permanent, which contradicts the time-limited policy below, so they are
 //   deliberately not carried over. The binding can be deleted.)
 // Secrets (dashboard -> Settings -> Variables, "Encrypt"):
-//   GATE_PASSWORD   - must match CS_GATE_PW used by build.py
-//   PUSHOVER_TOKEN  - Pushover application token
-//   PUSHOVER_USER   - Pushover user/group key
-//   ADMIN_KEY       - secret for /admin?key=... , the collected-email list
-// Plain var:
+//   GATE_PASSWORD     - must match CS_GATE_PW used by build.py
+//   ADMIN_KEY         - secret for /admin?key=... , the collected-email list
+//   NTFY_TOPIC        - ntfy topic. On the public server this IS the password:
+//                       long and random, never shared. See worker/README.md.
+//   NTFY_TOKEN        - optional. Set only for an access-controlled topic; it
+//                       also unmasks the requester's address in the payload.
+//   RESEND_TOKEN      - optional, enables the email fallback
+//   NOTIFY_EMAIL_TO   - where the fallback lands (your inbox)
+//   NOTIFY_EMAIL_FROM - verified Resend sender, e.g. "Access <a@example.com>"
+// Plain vars:
 //   ALLOWED_ORIGIN  - site origin allowed to call this Worker via fetch
+//   NTFY_SERVER     - optional, defaults to https://ntfy.sh (set for self-host)
 
 // How long an approval lasts. Keep in step with CS_ACCESS_TTL_HOURS in
 // build.py, which is what the gate UI tells visitors.
@@ -114,6 +120,7 @@ async function ensureSchema(env) {
          created_at INTEGER NOT NULL,
          decided_at INTEGER,
          notified_at INTEGER,
+         notified_via TEXT,
          notify_error TEXT
        )`
     ),
@@ -154,7 +161,7 @@ async function ensureSchema(env) {
   // Deployments from before push delivery was checked have no record of
   // whether a notification landed. Added separately so an existing `requests`
   // table picks them up without being rebuilt.
-  for (const col of ["notified_at INTEGER", "notify_error TEXT"]) {
+  for (const col of ["notified_at INTEGER", "notified_via TEXT", "notify_error TEXT"]) {
     try {
       await env.DB.prepare(`ALTER TABLE requests ADD COLUMN ${col}`).run();
     } catch (e) {
@@ -185,78 +192,153 @@ async function countSince(env, column, value, since) {
   return row ? row.n : 0;
 }
 
-// Pushover's reply is the ONLY evidence that a notification went anywhere,
-// and it is exactly what changes when the phone does: a handset wiped and not
-// re-registered, a re-created account with a different user key, a group key
-// whose only device is gone -- all of it comes back here as a rejection.
+// ---- notifying you -------------------------------------------------------
 //
-// The first version awaited this fetch and discarded the result, so a dead
-// push channel was indistinguishable from a working one: the request was
-// stored, the visitor was told "pending", and no one was ever told. Return the
-// outcome so it can be recorded and shown, and never throw -- a notification
-// that could not be sent is not a reason to fail the visitor's request. The
-// /admin page is the backstop, and /admin/push-test is how you check the
-// channel without waiting for a stranger to trip it.
-async function postToPushover(env, fields) {
-  if (!env.PUSHOVER_TOKEN || !env.PUSHOVER_USER) {
-    return { ok: false, detail: "PUSHOVER_TOKEN and/or PUSHOVER_USER are not set on this Worker" };
-  }
-  const body = new URLSearchParams({
-    token: env.PUSHOVER_TOKEN,
-    user: env.PUSHOVER_USER,
-    ...fields,
-  });
+// Two independent channels, tried in order: ntfy for the buzz on your phone,
+// email as the fallback that survives losing the phone entirely. Nothing here
+// ever throws -- a notification that could not be sent is not a reason to fail
+// the visitor's request, whose row is already stored and visible on /admin.
+//
+// A fallback is only worth having if it cannot HIDE the primary's failure. So
+// a request delivered by email alone is recorded as delivered *and* as an ntfy
+// error, and the admin page shows it amber, not green. Silent degradation is
+// the failure mode this whole file is built to avoid.
+
+const NTFY_DEFAULT_SERVER = "https://ntfy.sh";
+
+// On a public ntfy server there is no access control: the topic name is the
+// entire credential, and anyone who subscribes sees these notifications --
+// which carry links that GRANT ACCESS. A leaked topic is a leaked gate.
+//
+// So the topic must be long and random (see README), and the address is masked
+// here unless NTFY_TOKEN is set, which is the signal that the topic is access
+// controlled. The domain survives masking because that is what you actually
+// judge a request on; the full address is one tap away on /admin, and the
+// email fallback carries it in full because your inbox is not a broadcast.
+function maskEmail(email) {
+  const at = String(email).lastIndexOf("@");
+  if (at < 1) return "someone";
+  return `${email[0]}***${email.slice(at)}`;
+}
+
+function notifyChannels(env) {
+  const out = [];
+  if (env.NTFY_TOPIC) out.push("ntfy");
+  if (env.RESEND_TOKEN && env.NOTIFY_EMAIL_TO && env.NOTIFY_EMAIL_FROM) out.push("email");
+  return out;
+}
+
+async function postNtfy(env, payload) {
+  if (!env.NTFY_TOPIC) return { ok: false, detail: "NTFY_TOPIC is not set on this Worker" };
+  const server = String(env.NTFY_SERVER || NTFY_DEFAULT_SERVER).replace(/\/+$/, "");
+  const headers = { "content-type": "application/json" };
+  if (env.NTFY_TOKEN) headers.authorization = `Bearer ${env.NTFY_TOKEN}`;
   let res, text;
   try {
-    res = await fetch("https://api.pushover.net/1/messages.json", {
+    res = await fetch(server, {
       method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body,
+      headers,
+      body: JSON.stringify({ topic: env.NTFY_TOPIC, ...payload }),
     });
     text = (await res.text()).slice(0, 400);
   } catch (err) {
-    return { ok: false, detail: `could not reach Pushover: ${String((err && err.message) || err)}` };
+    return { ok: false, detail: `could not reach ${server}: ${String((err && err.message) || err)}` };
   }
+  if (res.ok) return { ok: true, detail: "" };
+  // ntfy reports failures as {"code":..,"http":..,"error":".."}; fall back to
+  // the raw body so an unexpected shape is still diagnosable.
   let parsed = null;
-  try { parsed = JSON.parse(text); } catch { /* keep the raw text below */ }
-  if (res.ok && parsed && parsed.status === 1) return { ok: true, detail: "" };
-  // Pushover puts the human-readable reason in `errors`; fall back to the raw
-  // body so an unexpected shape is still diagnosable rather than swallowed.
-  const why = parsed && Array.isArray(parsed.errors) && parsed.errors.length
-    ? parsed.errors.join("; ")
-    : (text || "(empty response)");
-  return { ok: false, detail: `Pushover returned HTTP ${res.status}: ${why}` };
+  try { parsed = JSON.parse(text); } catch { /* keep the raw text */ }
+  const why = (parsed && (parsed.error || parsed.message)) || text || "(empty response)";
+  return { ok: false, detail: `ntfy returned HTTP ${res.status}: ${why}` };
 }
 
-async function sendPushover(env, selfOrigin, email, requestId) {
-  const approveUrl = `${selfOrigin}/approve?token=${requestId}`;
-  const denyUrl = `${selfOrigin}/deny?token=${requestId}`;
-  return await postToPushover(env, {
+async function sendNtfy(env, selfOrigin, email, requestId) {
+  return await postNtfy(env, {
     title: "Case study access request",
-    message:
-      `<b>${esc(email)}</b> wants access to your gated case studies.<br><br>` +
-      `<a href="${approveUrl}">Approve</a>  |  <a href="${denyUrl}">Deny</a>`,
-    html: "1",
-    url: approveUrl,
-    url_title: "Approve",
+    message: `${env.NTFY_TOKEN ? email : maskEmail(email)} wants access to your gated case studies.`,
+    priority: 4,
+    tags: ["lock"],
+    // `http` actions fire the request straight from the notification, so
+    // approving never opens a browser. ntfy allows at most three; we use two.
+    actions: [
+      { action: "http", label: "Approve", url: `${selfOrigin}/approve?token=${requestId}`, method: "GET", clear: true },
+      { action: "http", label: "Deny", url: `${selfOrigin}/deny?token=${requestId}`, method: "GET", clear: true },
+    ],
   });
 }
 
-// State of the push channel, taken from the last request that tried to notify.
+async function postEmail(env, subject, htmlBody) {
+  if (!env.RESEND_TOKEN || !env.NOTIFY_EMAIL_TO || !env.NOTIFY_EMAIL_FROM) {
+    return { ok: false, detail: "RESEND_TOKEN, NOTIFY_EMAIL_TO and NOTIFY_EMAIL_FROM are not all set on this Worker" };
+  }
+  let res, text;
+  try {
+    res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${env.RESEND_TOKEN}`,
+      },
+      body: JSON.stringify({
+        from: env.NOTIFY_EMAIL_FROM,
+        to: [env.NOTIFY_EMAIL_TO],
+        subject,
+        html: htmlBody,
+      }),
+    });
+    text = (await res.text()).slice(0, 400);
+  } catch (err) {
+    return { ok: false, detail: `could not reach Resend: ${String((err && err.message) || err)}` };
+  }
+  if (res.ok) return { ok: true, detail: "" };
+  let parsed = null;
+  try { parsed = JSON.parse(text); } catch { /* keep the raw text */ }
+  const why = (parsed && (parsed.message || parsed.error)) || text || "(empty response)";
+  return { ok: false, detail: `Resend returned HTTP ${res.status}: ${why}` };
+}
+
+async function sendEmailNotice(env, selfOrigin, email, requestId) {
+  const approveUrl = `${selfOrigin}/approve?token=${requestId}`;
+  const denyUrl = `${selfOrigin}/deny?token=${requestId}`;
+  return await postEmail(env, `Case study access request: ${email}`,
+    `<p><b>${esc(email)}</b> wants access to your gated case studies.</p>
+     <p><a href="${approveUrl}">Approve</a> &nbsp;|&nbsp; <a href="${denyUrl}">Deny</a></p>
+     <p style="color:#777;font-size:13px">You are getting this by email because
+     the ntfy notification did not go through. Worth fixing on the admin page.</p>`);
+}
+
+// Tries ntfy, falls back to email. Returns which channel worked, and keeps the
+// primary's error even on success so a degraded delivery still reads as a
+// problem rather than disappearing.
+async function notifyOwner(env, selfOrigin, email, requestId) {
+  const primary = await sendNtfy(env, selfOrigin, email, requestId);
+  if (primary.ok) return { ok: true, via: "ntfy", detail: null };
+
+  const fallback = await sendEmailNotice(env, selfOrigin, email, requestId);
+  if (fallback.ok) {
+    return { ok: true, via: "email", detail: `delivered by email fallback only -- ntfy failed: ${primary.detail}` };
+  }
+  return { ok: false, via: null, detail: `ntfy: ${primary.detail} // email: ${fallback.detail}` };
+}
+
+// State of notification delivery, taken from the last request that tried.
 // "unknown" means nothing has been sent since this was deployed, which is not
 // the same as healthy -- say so rather than showing a reassuring green.
-async function pushHealth(env) {
-  if (!env.PUSHOVER_TOKEN || !env.PUSHOVER_USER) {
-    return { state: "unconfigured", detail: "PUSHOVER_TOKEN and/or PUSHOVER_USER are not set on this Worker", at: null };
+async function notifyHealth(env) {
+  const channels = notifyChannels(env);
+  if (!channels.length) {
+    return { state: "unconfigured", detail: "no notification channel is configured on this Worker", at: null, via: null };
   }
   const row = await env.DB.prepare(
-    `SELECT created_at, notified_at, notify_error FROM requests
+    `SELECT created_at, notified_at, notified_via, notify_error FROM requests
       WHERE notified_at IS NOT NULL OR notify_error IS NOT NULL
       ORDER BY created_at DESC, rowid DESC LIMIT 1`
   ).first();
-  if (!row) return { state: "unknown", detail: "no notification has been attempted yet", at: null };
-  if (row.notify_error) return { state: "failing", detail: row.notify_error, at: row.created_at };
-  return { state: "ok", detail: "", at: row.notified_at };
+  if (!row) return { state: "unknown", detail: "no notification has been attempted yet", at: null, via: null };
+  if (!row.notified_at) return { state: "failing", detail: row.notify_error, at: row.created_at, via: null };
+  if (row.notify_error) return { state: "degraded", detail: row.notify_error, at: row.notified_at, via: row.notified_via };
+  return { state: "ok", detail: "", at: row.notified_at, via: row.notified_via };
 }
 
 async function handleRequestAccess(req, env) {
@@ -298,10 +380,10 @@ async function handleRequestAccess(req, env) {
 
   // Stored before the notification is attempted, so the Approve link works
   // even if the visitor's row and the push race each other.
-  const push = await sendPushover(env, new URL(req.url).origin, email, requestId);
+  const sent = await notifyOwner(env, new URL(req.url).origin, email, requestId);
   await env.DB.prepare(
-    "UPDATE requests SET notified_at = ?1, notify_error = ?2 WHERE id = ?3"
-  ).bind(push.ok ? Date.now() : null, push.ok ? null : push.detail, requestId).run();
+    "UPDATE requests SET notified_at = ?1, notified_via = ?2, notify_error = ?3 WHERE id = ?4"
+  ).bind(sent.ok ? Date.now() : null, sent.via, sent.detail, requestId).run();
 
   // Still "pending" either way: the request is genuinely waiting on a
   // decision, and a visitor cannot act on the owner's broken phone.
@@ -449,24 +531,33 @@ function adminPage(body, status = 200) {
 // The banner that would have told you the phone reset had broken this,
 // instead of you finding out some other way.
 function pushBanner(health, key) {
-  const test = `<a class="btn test" href="/admin/push-test?key=${key}">Send a test notification</a>`;
+  const test = `<a class="btn test" href="/admin/notify-test?key=${key}">Test both channels</a>`;
   if (health.state === "ok") {
-    return `<div class="banner good"><b>Push notifications are working</b>
-      Last one delivered ${esc(ago(health.at))}. ${test}</div>`;
+    return `<div class="banner good"><b>Notifications are working</b>
+      Last one delivered ${esc(ago(health.at))} by ${esc(health.via)}. ${test}</div>`;
+  }
+  if (health.state === "degraded") {
+    // The whole point of a fallback: it must not hide the primary's failure.
+    return `<div class="banner warn2"><b>Delivered, but only by the fallback</b>
+      The last request reached you by ${esc(health.via)} ${esc(ago(health.at))}
+      because ntfy failed &mdash; so your phone is not buzzing any more. ${test}
+      <p><code>${esc(health.detail)}</code></p>
+      <p>Re-subscribe the phone to the topic in the ntfy app, or check
+      <code>NTFY_TOPIC</code> still matches it.</p></div>`;
   }
   if (health.state === "unknown") {
-    return `<div class="banner warn2"><b>Push notifications: not verified</b>
+    return `<div class="banner warn2"><b>Notifications: not verified</b>
       Nothing has been sent yet, so there is no evidence either way. ${test}</div>`;
   }
   const fix = health.state === "unconfigured"
-    ? `<p>Set both secrets under Worker &rarr; Settings &rarr; Variables, ticking Encrypt.</p>`
-    : `<p>Usually the phone: install Pushover on it and sign in to the same
-       account, then confirm the device is listed at
-       <a href="https://pushover.net/">pushover.net</a>. If you created a new
-       account, copy the new user key into the <code>PUSHOVER_USER</code>
-       secret on this Worker. Re-test with the button above.</p>`;
-  return `<div class="banner bad"><b>Push notifications are NOT being delivered</b>
-    Requests still land on this page, but nothing reaches your phone.
+    ? `<p>Set <code>NTFY_TOPIC</code> (and optionally the Resend fallback vars)
+       under Worker &rarr; Settings &rarr; Variables.</p>`
+    : `<p>Usually the phone: open the ntfy app and re-subscribe to the topic in
+       <code>NTFY_TOPIC</code> &mdash; a reset handset loses its subscriptions
+       even though the topic itself never changes. If the error mentions the
+       fallback too, check the Resend vars.</p>`;
+  return `<div class="banner bad"><b>Notifications are NOT being delivered</b>
+    Requests still land on this page, but nothing is reaching you.
     ${test}
     <p><code>${esc(health.detail)}</code></p>${fix}</div>`;
 }
@@ -475,7 +566,7 @@ async function handleAdmin(url, env) {
   const key = encodeURIComponent(url.searchParams.get("key") || "");
   const now = Date.now();
 
-  const health = await pushHealth(env);
+  const health = await notifyHealth(env);
 
   const pending = (await env.DB.prepare(
     `SELECT id, email, created_at, notified_at, notify_error FROM requests
@@ -493,8 +584,8 @@ async function handleAdmin(url, env) {
   const pendingRows = pending.length
     ? pending.map((r) => `<tr>
         <td class="email">${esc(r.email)}</td>
-        <td>${esc(ago(r.created_at))}${r.notify_error
-              ? ` <span class="pill no" title="${esc(r.notify_error)}">not pushed</span>` : ""}</td>
+        <td>${esc(ago(r.created_at))}${r.notified_at
+              ? "" : ` <span class="pill no" title="${esc(r.notify_error || "")}">not delivered</span>`}</td>
         <td>
           <a class="btn approve" href="/approve?token=${encodeURIComponent(r.id)}&key=${key}">Approve</a>
           <a class="btn deny" href="/deny?token=${encodeURIComponent(r.id)}&key=${key}">Deny</a>
@@ -540,36 +631,35 @@ async function handleAdmin(url, env) {
     </p>`);
 }
 
-// Prove the channel end to end without waiting for a stranger to trip it:
-// tap this on the phone you want the alerts on, and either it buzzes or you
-// get the exact reason it did not.
-async function handleAdminPushTest(url, env) {
+// Prove both channels end to end without waiting for a stranger to trip it.
+// Each is tested independently: the fallback working is not evidence that the
+// phone does, which is exactly the confusion this page exists to prevent.
+async function handleAdminNotifyTest(url, env) {
   const key = encodeURIComponent(url.searchParams.get("key") || "");
   const back = `<p class="sub" style="margin-top:1rem"><a href="/admin?key=${key}">Back to access requests</a></p>`;
-  const res = await postToPushover(env, {
-    title: "Push test",
-    message: "If you can read this, case-study access alerts reach this device.",
+
+  const ntfy = await postNtfy(env, {
+    title: "Test notification",
+    message: "If this buzzed, case-study access alerts reach this phone.",
+    priority: 4,
+    tags: ["white_check_mark"],
   });
-  if (res.ok) {
-    return adminPage(`
-      <h1>Test sent</h1>
-      <div class="banner good"><b>Pushover accepted the message</b>
-        It should be on your phone now. If it is not, the account is fine but this
-        handset is not registered to it &mdash; open Pushover on the phone, sign in,
-        and check the device appears at <a href="https://pushover.net/">pushover.net</a>.</div>
-      ${back}`);
-  }
+  const mail = await postEmail(env, "Case study access: test notification",
+    `<p>If you can read this, the email fallback works.</p>`);
+
+  const row = (label, res, hint) => res.ok
+    ? `<div class="banner good"><b>${label}: sent</b> ${hint}</div>`
+    : `<div class="banner bad"><b>${label}: failed</b>
+         <p><code>${esc(res.detail)}</code></p></div>`;
+
   return adminPage(`
-    <h1>Test failed</h1>
-    <div class="banner bad"><b>Nothing was delivered</b>
-      <p><code>${esc(res.detail)}</code></p>
-      <p>If that mentions the user key, the <code>PUSHOVER_USER</code> secret on
-      this Worker no longer matches your account &mdash; copy the current user key
-      from <a href="https://pushover.net/">pushover.net</a> into it. If it mentions
-      the application token, do the same for <code>PUSHOVER_TOKEN</code>. If it
-      mentions devices, the account has none registered: install Pushover on the
-      phone and sign in.</p></div>
-    ${back}`, 502);
+    <h1>Notification test</h1>
+    ${row("ntfy (your phone)", ntfy,
+          "It should be on your phone now. If it is not, the topic is fine but this handset is not subscribed to it \u2014 open the ntfy app and subscribe to the topic in NTFY_TOPIC.")}
+    ${row("Email fallback", mail, "Check the inbox in NOTIFY_EMAIL_TO, and its spam folder.")}
+    <p class="sub" style="margin-top:1rem">Both failing means nothing will reach
+    you at all; only the fallback failing is survivable but worth fixing.</p>
+    ${back}`, ntfy.ok || mail.ok ? 200 : 502);
 }
 
 async function handleAdminCsv(url, env) {
@@ -613,7 +703,7 @@ export default {
     if (url.pathname === "/health") {
       return json({ ok: true, storage: "d1", accessTtlHours: ACCESS_TTL_MS / 3600000,
                     adminConfigured: !!env.ADMIN_KEY,
-                    pushConfigured: !!(env.PUSHOVER_TOKEN && env.PUSHOVER_USER) }, 200, origin);
+                    notifyChannels: notifyChannels(env) }, 200, origin);
     }
 
     try {
@@ -634,7 +724,7 @@ export default {
         return await handleDecision(req, env, "denied");
       }
       if (url.pathname === "/admin" || url.pathname === "/admin/emails.csv"
-          || url.pathname === "/admin/push-test") {
+          || url.pathname === "/admin/notify-test") {
         if (!env.ADMIN_KEY) {
           return adminPage(`<h1>Not configured</h1><p class="sub">Set an ADMIN_KEY secret on this Worker to use this page.</p>`, 503);
         }
@@ -642,7 +732,7 @@ export default {
           return adminPage(`<h1>Not found</h1>`, 404);
         }
         if (url.pathname === "/admin") return await handleAdmin(url, env);
-        if (url.pathname === "/admin/push-test") return await handleAdminPushTest(url, env);
+        if (url.pathname === "/admin/notify-test") return await handleAdminNotifyTest(url, env);
         return await handleAdminCsv(url, env);
       }
     } catch (err) {

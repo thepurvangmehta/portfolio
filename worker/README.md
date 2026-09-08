@@ -28,15 +28,26 @@ the workload KV's caching model is wrong for.
 2. **Bind it.** Worker, Settings, Bindings, add a **D1 database** binding with
    variable name `DB` pointing at `cs-access`. The variable name must be
    exactly `DB`.
-3. **Set secrets** (Settings, Variables, tick Encrypt on all four):
+3. **Set secrets** (Settings, Variables, tick Encrypt):
    - `GATE_PASSWORD` - must exactly match `CS_GATE_PW` used by `build.py`
-   - `PUSHOVER_TOKEN` - Pushover application token
-   - `PUSHOVER_USER` - Pushover user/group key
    - `ADMIN_KEY` - any long random string; it is the password to the
      collected-email page below
-4. **Set the plain var** `ALLOWED_ORIGIN` to `https://thepurvangmehta.com`.
-5. **Deploy** the code in `src/index.js` (paste it into the dashboard editor,
+   - `NTFY_TOPIC` - the ntfy topic your phone subscribes to. **Generate it,
+     do not name it** (see the warning below):
+     `openssl rand -hex 16`
+   - `NTFY_TOKEN` - *optional.* Only for an access-controlled topic (ntfy Pro
+     or self-hosted). Setting it also unmasks the requester's address in the
+     notification.
+   - `RESEND_TOKEN`, `NOTIFY_EMAIL_TO`, `NOTIFY_EMAIL_FROM` - *optional*, the
+     email fallback. `NOTIFY_EMAIL_FROM` must be a verified Resend sender,
+     e.g. `Access <access@thepurvangmehta.com>`.
+4. **Set the plain vars**: `ALLOWED_ORIGIN` to `https://thepurvangmehta.com`,
+   and `NTFY_SERVER` only if you self-host ntfy (defaults to `https://ntfy.sh`).
+5. **Subscribe the phone**: install [ntfy](https://ntfy.sh/), add a
+   subscription to that exact topic, allow notifications.
+6. **Deploy** the code in `src/index.js` (paste it into the dashboard editor,
    or `wrangler deploy` from this directory).
+7. **Verify** at `/admin/notify-test?key=<ADMIN_KEY>`, from the phone.
 
 Tables are created automatically on first request, there is no migration step.
 
@@ -84,45 +95,73 @@ Two things to know:
 | `GET /deny?token=` | the Deny link |
 | `GET /admin?key=` | collected emails, pending approvals, push status, CSV link |
 | `GET /admin/emails.csv?key=` | CSV export of every address |
-| `GET /admin/push-test?key=` | sends a real notification and shows what Pushover said |
+| `GET /admin/notify-test?key=` | tests ntfy and email separately, shows what each said |
 | `GET /health` | binding sanity check |
 
-## When notifications stop (new phone, reinstalled app, new account)
+## How you get told
 
-Delivery depends on `PUSHOVER_USER` still naming an account that has at least
-one registered device. Wiping a phone does not change the user key, but it does
-un-register that handset, and signing up again rather than signing back in
-gives you a **different** key while the Worker keeps sending to the old one.
+Two independent channels, tried in order:
 
-Either way the symptom is the same and it used to be silent: requests kept
-being accepted and stored, visitors kept being told "pending", and nothing
-reached you. The Worker now records what Pushover said about every
-notification, so:
+1. **ntfy** (`https://ntfy.sh`) - the buzz on your phone. The notification
+   carries **Approve** and **Deny** as ntfy `http` actions, so one tap fires
+   the request straight from the notification shade without opening a browser.
+2. **Email via Resend** - the fallback, only used when ntfy fails. No app, no
+   device binding, nothing to lose when a phone is replaced.
 
-1. Open `/admin?key=<ADMIN_KEY>`. The banner at the top says whether the last
-   notification was delivered, and prints Pushover's own reason if it was not.
-   Anything waiting is still listed with Approve/Deny, so nobody is stuck while
-   push is down.
-2. Tap **Send a test notification** on the phone you want the alerts on. Either
-   it buzzes or you get the exact error.
+A fallback is only worth having if it cannot *hide* the primary's failure, so a
+request delivered by email alone is recorded as delivered **and** as an ntfy
+error, and `/admin` shows it amber rather than green. Silent degradation is the
+failure mode this file is built to avoid.
+
+### The topic name is a password, not a name
+
+On the public ntfy.sh server there is no access control: **anyone who knows a
+topic can subscribe to it, and anyone subscribed sees these notifications -
+which contain links that grant access.** Someone who learned your topic could
+request access with their own address and approve themselves. A leaked topic is
+a leaked gate.
+
+That is an acceptable model *only* because it is the same one `/admin?key=` already
+uses: the string is the credential. So:
+
+- Generate the topic (`openssl rand -hex 16`). Never a guessable name like
+  `purvang-portfolio`.
+- Never paste it into a screenshot, a shared doc, or a commit.
+- The requester's address is **masked** in the ntfy payload (`j***@acme.com`) so
+  a leaked topic leaks less. The domain survives, which is what you actually
+  judge on; the full address is on `/admin` and in the fallback email.
+- To revoke, change `NTFY_TOPIC` and re-subscribe the phone.
+- To remove the caveat entirely, use an access-controlled topic (ntfy Pro or
+  self-hosted) and set `NTFY_TOKEN`. That also unmasks the address.
+
+## When notifications stop
+
+The most likely cause is the phone: **a reset or reinstalled handset loses its
+ntfy subscriptions**, even though the topic itself never changes. Nothing
+server-side needs updating - just re-subscribe.
+
+1. Open `/admin?key=<ADMIN_KEY>`. The banner says whether the last notification
+   was delivered and by which channel, and prints the failure verbatim if not.
+   Anything waiting is still listed with Approve/Deny, so nobody is stuck.
+2. Hit **Test both channels** from the phone. Each is reported separately - the
+   fallback working is not evidence that your phone does.
 3. Fix per the error:
-   - *not a valid user / group key* -> the account behind `PUSHOVER_USER` is
-     gone or was re-created. Copy the current user key from
-     [pushover.net](https://pushover.net/) into the `PUSHOVER_USER` secret.
-   - *no active devices* -> the account is right but no handset is registered.
-     Install Pushover on the phone, sign in to that account, confirm the device
-     appears on the site.
-   - *application token is invalid* -> same, for `PUSHOVER_TOKEN`.
-   - *could not reach Pushover* -> transient; re-test.
-4. Re-test until the banner is green. `/health` also reports `pushConfigured`,
-   which only tells you the secrets are set, not that they still work — the
-   banner and the test are what actually prove delivery.
+   - *ntfy failed, email worked* (amber banner) -> re-subscribe the phone to the
+     topic in `NTFY_TOPIC`.
+   - *topic not found / 4xx from ntfy* -> `NTFY_TOPIC` is wrong, or `NTFY_TOKEN`
+     is set but not valid for that topic.
+   - *Resend 403 / domain not verified* -> `NOTIFY_EMAIL_FROM` is not a verified
+     sender on your Resend domain.
+   - *could not reach ...* -> transient; re-test.
+4. Re-test until the banner is green. `/health` lists `notifyChannels`, which
+   only tells you what is configured, not that it works - the banner and the
+   test are what prove delivery.
 
 Changing a secret takes effect immediately; no redeploy is needed.
 
-**The admin page is the fallback channel.** Push is a convenience, not the
-system of record — every request is in D1 whether or not the notification
-landed, which is why a dead phone can never lose one.
+**The admin page is the real backstop.** Notifications are a convenience, not
+the system of record - every request is in D1 whether or not anything was
+delivered, which is why a dead phone can never lose one.
 
 ## Operational notes
 
@@ -136,11 +175,12 @@ landed, which is why a dead phone can never lose one.
   in SQL against the `requests` table. Tune the constants in `src/index.js`.
 - **Housekeeping** is piggybacked onto approve/deny: rows older than 7 days are
   deleted, so no cron job is needed.
-- **A failed notification never fails the request.** `sendPushover` returns its
-  outcome instead of throwing it away, and the caller records it on the request
-  row (`notified_at` / `notify_error`). Do not go back to ignoring that
-  response: it is the only evidence the channel works, and without it a broken
-  phone looks exactly like a quiet week.
+- **A failed notification never fails the request.** Every sender returns
+  `{ok, detail}` rather than throwing its result away, and the caller records it
+  on the request row (`notified_at` / `notified_via` / `notify_error`). Do not go
+  back to ignoring those responses: they are the only evidence the channels
+  work, and without them a broken phone looks exactly like a quiet week. That is
+  precisely how this broke once already.
 - **Tests**: the handler logic is covered end to end against real SQLite via
   `node:sqlite`, including the CORS-preflight regression that once broke the
   whole flow, and the dead-push-channel cases. Run them with
