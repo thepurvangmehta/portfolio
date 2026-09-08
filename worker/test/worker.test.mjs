@@ -374,5 +374,84 @@ console.log('\n== a healthy channel reads as healthy ==');
   check('health lists none when unset', JSON.stringify((await bare.json()).notifyChannels) === '[]');
 }
 
+console.log('\n== a green test counts as evidence (banner stops saying "not verified") ==');
+{
+  // Wipe every trace of a delivery so the banner starts from "unknown".
+  db.prepare('DELETE FROM notify_status').run();
+  const fresh = await (await call('/admin?key=super-secret-admin-key')).text();
+  check('starts as not verified', /Notifications: not verified/.test(fresh));
+
+  pushReply = () => new Response('{"status":1}', { status: 200 });
+  await call('/admin/notify-test?key=super-secret-admin-key');
+
+  const after = await (await call('/admin?key=super-secret-admin-key')).text();
+  check('a passing test turns it green', /Notifications are working/.test(after));
+  check('and says it was a test, not a real request', /Last test delivered/.test(after));
+  check('no longer claims unverified', !/Notifications: not verified/.test(after));
+}
+{
+  // A failing test must equally turn it red, not leave a stale green.
+  pushReply = () => new Response('{"status":0,"errors":["no active devices"]}', { status: 400 });
+  emailReply = () => new Response('{"message":"nope"}', { status: 403 });
+  await call('/admin/notify-test?key=super-secret-admin-key');
+  const body = await (await call('/admin?key=super-secret-admin-key')).text();
+  check('a failing test turns it red', /NOT being delivered/.test(body));
+  check('shows the reason', /no active devices/.test(body));
+}
+
+console.log('\n== inviting someone whose request never reached you ==');
+{
+  emailReply = () => new Response('{"id":"inv1"}', { status: 200 });
+  const before = emailCalls.length;
+  const r = await call('/admin/invite?key=super-secret-admin-key&email=praneeth@example.com');
+  const body = await r.text();
+  check('200', r.status === 200, r.status);
+  check('confirms it went out', /Invite sent/.test(body));
+
+  const sent = JSON.parse(emailCalls[before].body);
+  check('addressed to the visitor, not the owner', sent.to[0] === 'praneeth@example.com', sent.to);
+  check('replies come back to the owner', sent.reply_to === env.NOTIFY_EMAIL_TO, sent.reply_to);
+  check('apologises', /never heard back|Sorry/i.test(sent.html));
+  check('tells them to use that same address', sent.html.includes('praneeth@example.com'));
+  check('does NOT leak the gate password', !sent.html.includes(env.GATE_PASSWORD));
+
+  // The point of the whole thing: they can now get in without asking again.
+  const g = await (await call('/check-email?email=praneeth@example.com')).json();
+  check('they can now unlock', g.status === 'approved' && g.secret === env.GATE_PASSWORD, g.status);
+  const days = (g.expiresAt - Date.now()) / 86400000;
+  check('window is ~7 days, not 4 hours', days > 6.9 && days <= 7.01, days);
+}
+{
+  // If the mail cannot be sent, granting access would make the admin list claim
+  // someone can get in who was never told. Neither should happen.
+  emailReply = () => new Response('{"message":"domain not verified"}', { status: 403 });
+  const r = await call('/admin/invite?key=super-secret-admin-key&email=nomail@example.com');
+  const body = await r.text();
+  check('reports the failure', r.status === 502 && /Invite not sent/.test(body), r.status);
+  check('names the reason', /domain not verified/.test(body));
+  const g = await (await call('/check-email?email=nomail@example.com')).json();
+  check('no access granted when the mail failed', g.status === 'none', g);
+}
+{
+  const bad = await call('/admin/invite?key=super-secret-admin-key&email=notanemail');
+  check('rejects a malformed address', bad.status === 400, bad.status);
+  const locked = await call('/admin/invite?email=x@y.com');
+  check('needs the admin key', locked.status === 404, locked.status);
+}
+{
+  const linkFor = (body, email) =>
+    new RegExp('admin/invite\\?key=[^"]*' + encodeURIComponent(email).replace('.', '\\.')).test(body);
+
+  const before = await (await call('/admin?key=super-secret-admin-key')).text();
+  check('offers Invite to a contact with no access', linkFor(before, 'spam@x.com'));
+
+  emailReply = () => new Response('{"id":"inv2"}', { status: 200 });
+  await call('/admin/invite?key=super-secret-admin-key&email=spam@x.com');
+
+  const after = await (await call('/admin?key=super-secret-admin-key')).text();
+  check('button gone once they have access', !linkFor(after, 'spam@x.com'));
+  check('and they now show as having access', /7d left|168h left|\d+h left/.test(after));
+}
+
 console.log(failures === 0 ? '\nALL PASSED\n' : `\n${failures} FAILURE(S)\n`);
 process.exit(failures === 0 ? 0 : 1);

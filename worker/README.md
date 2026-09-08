@@ -91,6 +91,7 @@ Two things to know:
 | `GET /admin?key=` | collected emails, pending approvals, push status, CSV link |
 | `GET /admin/emails.csv?key=` | CSV export of every address |
 | `GET /admin/notify-test?key=` | tests Pushover and email separately, shows what each said |
+| `GET /admin/invite?key=&email=` | apologise to someone by email and grant them access |
 | `GET /health` | binding sanity check |
 
 ## How you get told
@@ -119,6 +120,26 @@ Pushover meters per account (10,000 messages/month free, and this Worker sends
 single figures), so nobody else's traffic can starve it. **Before swapping in
 any new provider, check how it meters.** Per-IP limits do not work from here.
 
+## Inviting someone whose request never reached you
+
+When notifications were broken, people asked and got nothing back. The **Invite**
+button beside any contact without live access emails them an apology, tells them
+to enter that same address on any locked case study, and grants it.
+
+Two deliberate differences from a normal approval:
+
+- **The mail goes first.** If it cannot be sent, no access is granted, because a
+  grant to someone who was never told just makes the admin list lie about who
+  can get in.
+- **The window is 7 days** (`INVITE_TTL_MS`), not the usual 4 hours. An approval
+  answers someone sitting on the page right now; an invite reaches someone who
+  may open it tomorrow, and a window that expires before they read it is worse
+  than not sending one.
+
+It needs the email channel configured. Optional vars: `INVITE_URL` (where to
+send them, default `ALLOWED_ORIGIN` + `/projects`) and `INVITE_SIGNATURE` (the
+name it signs off with).
+
 ## When notifications stop
 
 The likeliest cause is the phone: a wiped or reinstalled handset is
@@ -142,9 +163,10 @@ copying into `PUSHOVER_USER`.)
    - *Resend 403 / domain not verified* -> `NOTIFY_EMAIL_FROM` is not a verified
      sender on your Resend domain.
    - *could not reach ...* -> transient; re-test.
-4. Re-test until the banner is green. `/health` lists `notifyChannels`, which
-   only says what is configured, not that it works - the banner and the test are
-   what prove delivery.
+4. Re-test until the banner is green. A passing test counts as evidence and
+   turns the banner green, labelled "last test" rather than "last one", so you
+   never have to wait for a stranger to prove the channel works. `/health` lists
+   `notifyChannels`, which only says what is configured, not that it works.
 
 Changing a secret takes effect immediately; no redeploy is needed.
 
@@ -164,6 +186,10 @@ delivered, which is why a dead phone can never lose one.
   in SQL against the `requests` table. Tune the constants in `src/index.js`.
 - **Housekeeping** is piggybacked onto approve/deny: rows older than 7 days are
   deleted, so no cron job is needed.
+- **Delivery state lives in `notify_status`** (one row), written by real
+  notifications and by the test button alike. That is why a green test is
+  believed: a banner that said "not verified" straight after a passing test
+  would only teach you to ignore it.
 - **A failed notification never fails the request.** Every sender returns
   `{ok, detail}` rather than throwing its result away, and the caller records it
   on the request row (`notified_at` / `notified_via` / `notify_error`). Do not go

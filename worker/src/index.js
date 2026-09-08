@@ -37,6 +37,12 @@
 // How long an approval lasts. Keep in step with CS_ACCESS_TTL_HOURS in
 // build.py, which is what the gate UI tells visitors.
 const ACCESS_TTL_MS = 4 * 60 * 60 * 1000;
+// An invite is different from an approval on purpose. An approval answers a
+// visitor who is sitting on the page RIGHT NOW, so four hours is plenty. An
+// invite is you reaching out to someone who is not expecting it and may open
+// the mail tomorrow -- a four-hour window would be expired before they read
+// it, which is worse than not sending it.
+const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const PENDING_TTL_MS = 24 * 60 * 60 * 1000;   // a request goes stale after 24h
 const PURGE_AFTER_MS = 7 * 24 * 60 * 60 * 1000; // rows deleted after 7 days
 const RATE_WINDOW_MS = 60 * 60 * 1000;
@@ -137,6 +143,19 @@ async function ensureSchema(env) {
          first_seen INTEGER NOT NULL,
          last_seen INTEGER NOT NULL,
          hits INTEGER NOT NULL DEFAULT 1
+       )`
+    ),
+    // One row (id = 1) holding the last notification outcome from ANY source,
+    // real request or test alike. Kept separate from `requests` so pressing
+    // "test" counts as evidence -- a green test followed by an amber "not
+    // verified" banner just teaches you to distrust the banner.
+    env.DB.prepare(
+      `CREATE TABLE IF NOT EXISTS notify_status (
+         id INTEGER PRIMARY KEY,
+         at INTEGER,
+         via TEXT,
+         error TEXT,
+         was_test INTEGER NOT NULL DEFAULT 0
        )`
     ),
     env.DB.prepare(
@@ -254,7 +273,7 @@ async function sendPushover(env, selfOrigin, email, requestId) {
   });
 }
 
-async function postEmail(env, subject, htmlBody) {
+async function postEmail(env, { subject, html, to, replyTo }) {
   if (!env.RESEND_TOKEN || !env.NOTIFY_EMAIL_TO || !env.NOTIFY_EMAIL_FROM) {
     return { ok: false, detail: "RESEND_TOKEN, NOTIFY_EMAIL_TO and NOTIFY_EMAIL_FROM are not all set on this Worker" };
   }
@@ -268,9 +287,10 @@ async function postEmail(env, subject, htmlBody) {
       },
       body: JSON.stringify({
         from: env.NOTIFY_EMAIL_FROM,
-        to: [env.NOTIFY_EMAIL_TO],
+        to: [to || env.NOTIFY_EMAIL_TO],
         subject,
-        html: htmlBody,
+        html,
+        ...(replyTo ? { reply_to: replyTo } : {}),
       }),
     });
     text = (await res.text()).slice(0, 400);
@@ -287,12 +307,36 @@ async function postEmail(env, subject, htmlBody) {
 async function sendEmailNotice(env, selfOrigin, email, requestId) {
   const approveUrl = `${selfOrigin}/approve?token=${requestId}`;
   const denyUrl = `${selfOrigin}/deny?token=${requestId}`;
-  return await postEmail(env, `Case study access request: ${email}`,
+  return await postEmail(env, { subject: `Case study access request: ${email}`, html:
     `<p><b>${esc(email)}</b> wants access to your gated case studies.</p>
      <p><a href="${approveUrl}">Approve</a> &nbsp;|&nbsp; <a href="${denyUrl}">Deny</a></p>
      <p style="color:#777;font-size:13px">You are getting this by email because
      the Pushover notification did not go through &mdash; worth fixing on the
-     admin page, or your phone has stopped alerting you.</p>`);
+     admin page, or your phone has stopped alerting you.</p>` });
+}
+
+// The apology-and-access mail for someone whose request never reached you.
+// Goes TO the visitor, replies come back to your inbox.
+async function sendInviteEmail(env, email, days) {
+  const site = env.INVITE_URL || `${env.ALLOWED_ORIGIN || ""}/projects`;
+  const who = env.INVITE_SIGNATURE || "Purvang";
+  return await postEmail(env, {
+    to: email,
+    replyTo: env.NOTIFY_EMAIL_TO,
+    subject: "Sorry for the delay \u2014 here's access to my case studies",
+    html:
+      `<p>Hi,</p>
+       <p>You asked to see my gated case studies a while ago and never heard back.
+       That was my fault: the alerts telling me about requests had quietly stopped
+       working, so yours never reached me. Sorry to have left you waiting.</p>
+       <p>You have access now. Go to <a href="${esc(site)}">${esc(site)}</a>, open any
+       locked case study, and enter this same address &mdash;
+       <b>${esc(email)}</b> &mdash; and it will open straight away. No waiting for
+       approval this time.</p>
+       <p>That holds for the next ${days} days. If it lapses, just ask again
+       through the site &mdash; requests reach me properly now.</p>
+       <p>Thanks for your patience,<br>${esc(who)}</p>`,
+  });
 }
 
 function notifyChannels(env) {
@@ -316,7 +360,17 @@ async function notifyOwner(env, selfOrigin, email, requestId) {
   return { ok: false, via: null, detail: `pushover: ${primary.detail} // email: ${fallback.detail}` };
 }
 
-// State of notification delivery, taken from the last request that tried.
+// Every delivery attempt lands here, whether it came from a real request or
+// from the test button, so the banner reflects the last thing actually tried.
+async function recordNotifyResult(env, { ok, via, detail, wasTest }) {
+  await env.DB.prepare(
+    `INSERT INTO notify_status (id, at, via, error, was_test) VALUES (1, ?1, ?2, ?3, ?4)
+     ON CONFLICT(id) DO UPDATE SET at = excluded.at, via = excluded.via,
+       error = excluded.error, was_test = excluded.was_test`
+  ).bind(ok ? Date.now() : null, via, detail, wasTest ? 1 : 0).run();
+}
+
+// State of notification delivery, taken from the last attempt of any kind.
 // "unknown" means nothing has been sent since this was deployed, which is not
 // the same as healthy -- say so rather than showing a reassuring green.
 async function notifyHealth(env) {
@@ -325,14 +379,15 @@ async function notifyHealth(env) {
     return { state: "unconfigured", detail: "no notification channel is configured on this Worker", at: null, via: null };
   }
   const row = await env.DB.prepare(
-    `SELECT created_at, notified_at, notified_via, notify_error FROM requests
-      WHERE notified_at IS NOT NULL OR notify_error IS NOT NULL
-      ORDER BY created_at DESC, rowid DESC LIMIT 1`
+    "SELECT at, via, error, was_test FROM notify_status WHERE id = 1"
   ).first();
-  if (!row) return { state: "unknown", detail: "no notification has been attempted yet", at: null, via: null };
-  if (!row.notified_at) return { state: "failing", detail: row.notify_error, at: row.created_at, via: null };
-  if (row.notify_error) return { state: "degraded", detail: row.notify_error, at: row.notified_at, via: row.notified_via };
-  return { state: "ok", detail: "", at: row.notified_at, via: row.notified_via };
+  if (!row || (row.at === null && !row.error)) {
+    return { state: "unknown", detail: "no notification has been attempted yet", at: null, via: null };
+  }
+  const wasTest = !!row.was_test;
+  if (!row.at) return { state: "failing", detail: row.error, at: null, via: null, wasTest };
+  if (row.error) return { state: "degraded", detail: row.error, at: row.at, via: row.via, wasTest };
+  return { state: "ok", detail: "", at: row.at, via: row.via, wasTest };
 }
 
 async function handleRequestAccess(req, env) {
@@ -378,6 +433,7 @@ async function handleRequestAccess(req, env) {
   await env.DB.prepare(
     "UPDATE requests SET notified_at = ?1, notified_via = ?2, notify_error = ?3 WHERE id = ?4"
   ).bind(sent.ok ? Date.now() : null, sent.via, sent.detail, requestId).run();
+  await recordNotifyResult(env, { ...sent, wasTest: false });
 
   // Still "pending" either way: the request is genuinely waiting on a
   // decision, and a visitor cannot act on the owner's broken phone.
@@ -528,7 +584,8 @@ function pushBanner(health, key) {
   const test = `<a class="btn test" href="/admin/notify-test?key=${key}">Test both channels</a>`;
   if (health.state === "ok") {
     return `<div class="banner good"><b>Notifications are working</b>
-      Last one delivered ${esc(ago(health.at))} by ${esc(health.via)}. ${test}</div>`;
+      Last ${health.wasTest ? "test" : "one"} delivered ${esc(ago(health.at))}
+      by ${esc(health.via)}. ${test}</div>`;
   }
   if (health.state === "degraded") {
     // The whole point of a fallback: it must not hide the primary's failure.
@@ -599,8 +656,12 @@ async function handleAdmin(url, env) {
               : `<span class="pill no">no access</span>`}</td>
         <td>${esc(ago(c.last_seen))}</td>
         <td>${esc(ago(c.first_seen))}</td>
-        <td>${esc(c.hits)}</td></tr>`).join("")
-    : `<tr><td colspan="5" class="empty">No one has asked yet.</td></tr>`;
+        <td>${esc(c.hits)}</td>
+        <td>${c.expires_at && c.expires_at > now ? "" :
+          `<a class="btn test" href="/admin/invite?key=${key}&email=${encodeURIComponent(c.email)}"
+              onclick="return confirm('Email ${esc(c.email)} an apology and give them access?')"
+              >Invite</a>`}</td></tr>`).join("")
+    : `<tr><td colspan="6" class="empty">No one has asked yet.</td></tr>`;
 
   return adminPage(`
     <h1>Access requests</h1>
@@ -618,8 +679,12 @@ async function handleAdmin(url, env) {
     </table></div>
 
     <h2>All emails collected</h2>
+    <p class="sub" style="margin:-.3rem 0 .6rem">
+      <b>Invite</b> emails someone an apology and opens every gated case study for
+      them for ${Math.round(INVITE_TTL_MS / 86400000)} days &mdash; for requests that
+      never reached you. Needs the email channel configured.</p>
     <div class="wrap"><table>
-      <tr><th>Email</th><th>Access</th><th>Last seen</th><th>First seen</th><th>Times</th></tr>
+      <tr><th>Email</th><th>Access</th><th>Last seen</th><th>First seen</th><th>Times</th><th></th></tr>
       ${contactRows}
     </table></div>
 
@@ -641,8 +706,19 @@ async function handleAdminNotifyTest(url, env) {
     title: "Test notification",
     message: "If this buzzed, case-study access alerts reach this phone.",
   });
-  const mail = await postEmail(env, "Case study access: test notification",
-    `<p>If you can read this, the email fallback works.</p>`);
+  const mail = await postEmail(env, {
+    subject: "Case study access: test notification",
+    html: `<p>If you can read this, the email fallback works.</p>`,
+  });
+
+  // A test is evidence too, so the banner reflects it. Recorded exactly the way
+  // notifyOwner would: Pushover wins, email counts as a degraded delivery, and
+  // the primary's error is kept either way.
+  await recordNotifyResult(env, push.ok
+    ? { ok: true, via: "pushover", detail: null, wasTest: true }
+    : mail.ok
+      ? { ok: true, via: "email", detail: `delivered by email fallback only -- Pushover failed: ${push.detail}`, wasTest: true }
+      : { ok: false, via: null, detail: `pushover: ${push.detail} // email: ${mail.detail}`, wasTest: true });
 
   const row = (label, res, hint) => res.ok
     ? `<div class="banner good"><b>${label}: sent</b> ${hint}</div>`
@@ -657,6 +733,46 @@ async function handleAdminNotifyTest(url, env) {
     <p class="sub" style="margin-top:1rem">Both failing means nothing will reach
     you at all; only the fallback failing is survivable but worth fixing.</p>
     ${back}`, push.ok || mail.ok ? 200 : 502);
+}
+
+// Grant access and tell them, for someone whose request never reached you.
+// The mail goes FIRST: granting access to a person who was never told is just
+// a row that makes the admin list lie about who can get in.
+async function handleAdminInvite(url, env) {
+  const key = encodeURIComponent(url.searchParams.get("key") || "");
+  const email = (url.searchParams.get("email") || "").trim().toLowerCase();
+  const back = `<p class="sub" style="margin-top:1rem"><a href="/admin?key=${key}">Back to access requests</a></p>`;
+  if (!EMAIL_RE.test(email) || email.length > 254) {
+    return adminPage(`<h1>Not a valid address</h1>${back}`, 400);
+  }
+
+  const days = Math.round(INVITE_TTL_MS / 86400000);
+  const sent = await sendInviteEmail(env, email, days);
+  if (!sent.ok) {
+    return adminPage(`
+      <h1>Invite not sent</h1>
+      <div class="banner bad"><b>Nothing was emailed, and no access was granted</b>
+        <p><code>${esc(sent.detail)}</code></p>
+        <p>Inviting people needs the email channel configured
+        (<code>RESEND_TOKEN</code>, <code>NOTIFY_EMAIL_TO</code>,
+        <code>NOTIFY_EMAIL_FROM</code>). Until then you can still approve anyone
+        who asks through the site.</p></div>
+      ${back}`, 502);
+  }
+
+  const now = Date.now();
+  await env.DB.prepare(
+    `INSERT INTO approved (email, created_at, expires_at) VALUES (?1, ?2, ?3)
+     ON CONFLICT(email) DO UPDATE SET expires_at = excluded.expires_at`
+  ).bind(email, now, now + INVITE_TTL_MS).run();
+
+  return adminPage(`
+    <h1>Invite sent</h1>
+    <div class="banner good"><b>${esc(email)} has been emailed and can now get in</b>
+      They open any locked case study, enter that same address, and it unlocks.
+      Access holds for ${days} days rather than the usual few hours, because they
+      may not read the mail today.</div>
+    ${back}`);
 }
 
 async function handleAdminCsv(url, env) {
@@ -721,7 +837,8 @@ export default {
         return await handleDecision(req, env, "denied");
       }
       if (url.pathname === "/admin" || url.pathname === "/admin/emails.csv"
-          || url.pathname === "/admin/notify-test") {
+          || url.pathname === "/admin/notify-test"
+          || url.pathname === "/admin/invite") {
         if (!env.ADMIN_KEY) {
           return adminPage(`<h1>Not configured</h1><p class="sub">Set an ADMIN_KEY secret on this Worker to use this page.</p>`, 503);
         }
@@ -730,6 +847,7 @@ export default {
         }
         if (url.pathname === "/admin") return await handleAdmin(url, env);
         if (url.pathname === "/admin/notify-test") return await handleAdminNotifyTest(url, env);
+        if (url.pathname === "/admin/invite") return await handleAdminInvite(url, env);
         return await handleAdminCsv(url, env);
       }
     } catch (err) {
