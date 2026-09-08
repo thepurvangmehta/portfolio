@@ -75,9 +75,12 @@ Two things to know:
 - **Addresses are kept indefinitely**, in a `contacts` table separate from the
   operational `requests` rows (which are purged after 7 days). That is the
   point of the page, but it does mean you are holding personal data from
-  visitors, so the privacy policy should say you collect it and why. Delete
-  one with:
-  `wrangler d1 execute cs-access --command "DELETE FROM contacts WHERE email='x@y.com'"`
+  visitors, so the privacy policy should say you collect it and why. The
+  **Remove** button beside each contact erases one for good &mdash; use it for
+  test entries, and it is the answer when someone asks you to delete their data.
+  It deletes from `contacts`, `approved` and `requests` together: leaving a live
+  grant behind would let an address that no longer appears on the page keep
+  unlocking every gated case study.
 
 ## Endpoints
 
@@ -92,6 +95,7 @@ Two things to know:
 | `GET /admin/emails.csv?key=` | CSV export of every address |
 | `GET /admin/notify-test?key=` | tests Pushover and email separately, shows what each said |
 | `GET /admin/invite?key=&email=` | apologise to someone by email and grant them access |
+| `GET /admin/delete?key=&email=` | erase an address and revoke any access it holds |
 | `GET /health` | binding sanity check |
 
 ## How you get told

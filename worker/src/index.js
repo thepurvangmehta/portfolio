@@ -565,6 +565,7 @@ function adminPage(body, status = 200) {
        .btn{display:inline-block;padding:.3rem .7rem;border-radius:7px;text-decoration:none;
          font-size:.8rem;font-weight:600;margin-right:.3rem}
        .approve{background:#0a7038;color:#fff}.deny{background:#eee;color:#333}
+       .remove{background:transparent;color:#a33;border:1px solid #e3bcbc;font-weight:500}
        .test{background:#e5e5e5;color:#111;border:1px solid #ccc}
        .banner{padding:.8rem .9rem;border-radius:10px;margin:0 0 1.25rem;border:1px solid}
        .banner b{display:block;margin-bottom:.2rem}
@@ -577,7 +578,8 @@ function adminPage(body, status = 200) {
          .bad{background:#3a1414;border-color:#7d2b2b;color:#ffb4b4}
          .warn2{background:#3a3212;border-color:#7d6f2b;color:#f3dd94}
          .good{background:#0f2e1c;border-color:#2b7d4e;color:#9fe0bb}
-         .test{background:#2a2a2a;color:#eee;border-color:#444}}
+         .test{background:#2a2a2a;color:#eee;border-color:#444}
+         .remove{color:#e58e8e;border-color:#5a3030}}
        textarea{width:100%;height:6rem;font:12px/1.5 ui-monospace,monospace;padding:.6rem;
          border:1px solid #ddd;border-radius:8px;background:#fafafa;color:inherit}
        .empty{color:#888;font-style:italic}
@@ -666,10 +668,13 @@ async function handleAdmin(url, env) {
         <td>${esc(ago(c.last_seen))}</td>
         <td>${esc(ago(c.first_seen))}</td>
         <td>${esc(c.hits)}</td>
-        <td>${c.expires_at && c.expires_at > now ? "" :
-          `<a class="btn test" href="/admin/invite?key=${key}&email=${encodeURIComponent(c.email)}"
+        <td style="white-space:nowrap">${c.expires_at && c.expires_at > now ? "" :
+          `<a class="btn test" rel="nofollow" href="/admin/invite?key=${key}&email=${encodeURIComponent(c.email)}"
               onclick="return confirm('Email ${esc(c.email)} an apology and give them access?')"
-              >Invite</a>`}</td></tr>`).join("")
+              >Invite</a>`}<a class="btn remove" rel="nofollow"
+              href="/admin/delete?key=${key}&email=${encodeURIComponent(c.email)}"
+              onclick="return confirm('Delete ${esc(c.email)} for good? This also revokes any access they have.')"
+              >Remove</a></td></tr>`).join("")
     : `<tr><td colspan="6" class="empty">No one has asked yet.</td></tr>`;
 
   return adminPage(`
@@ -691,7 +696,9 @@ async function handleAdmin(url, env) {
     <p class="sub" style="margin:-.3rem 0 .6rem">
       <b>Invite</b> emails someone an apology and opens every gated case study for
       them for ${Math.round(INVITE_TTL_MS / 86400000)} days &mdash; for requests that
-      never reached you. Needs the email channel configured.</p>
+      never reached you. Needs the email channel configured.
+      <b>Remove</b> erases an address and revokes any access it has &mdash; for
+      test entries, and for anyone who asks you to delete their data.</p>
     <div class="wrap"><table>
       <tr><th>Email</th><th>Access</th><th>Last seen</th><th>First seen</th><th>Times</th><th></th></tr>
       ${contactRows}
@@ -784,6 +791,27 @@ async function handleAdminInvite(url, env) {
     ${back}`);
 }
 
+// Erase an address completely. Deliberately deletes from all three tables:
+// a contact removed while a live grant survived in `approved` would still be
+// able to unlock every gated case study, invisibly, because the page you check
+// no longer lists them. This is also the answer when someone asks you to delete
+// their data, so it must actually delete it rather than hide it.
+async function handleAdminDelete(url, env) {
+  const key = encodeURIComponent(url.searchParams.get("key") || "");
+  const email = (url.searchParams.get("email") || "").trim().toLowerCase();
+  if (!EMAIL_RE.test(email) || email.length > 254) {
+    return adminPage(`<h1>Not a valid address</h1>
+      <p class="sub" style="margin-top:1rem"><a href="/admin?key=${key}">Back to access requests</a></p>`, 400);
+  }
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM contacts WHERE email = ?1").bind(email),
+    env.DB.prepare("DELETE FROM approved WHERE email = ?1").bind(email),
+    env.DB.prepare("DELETE FROM requests WHERE email = ?1").bind(email),
+  ]);
+  // Straight back to the list, so several can be cleared in a row.
+  return Response.redirect(new URL(`/admin?key=${key}`, url).toString(), 302);
+}
+
 async function handleAdminCsv(url, env) {
   const rows = (await env.DB.prepare(
     `SELECT c.email, c.first_seen, c.last_seen, c.hits, a.expires_at
@@ -847,7 +875,8 @@ export default {
       }
       if (url.pathname === "/admin" || url.pathname === "/admin/emails.csv"
           || url.pathname === "/admin/notify-test"
-          || url.pathname === "/admin/invite") {
+          || url.pathname === "/admin/invite"
+          || url.pathname === "/admin/delete") {
         if (!env.ADMIN_KEY) {
           return adminPage(`<h1>Not configured</h1><p class="sub">Set an ADMIN_KEY secret on this Worker to use this page.</p>`, 503);
         }
@@ -857,6 +886,7 @@ export default {
         if (url.pathname === "/admin") return await handleAdmin(url, env);
         if (url.pathname === "/admin/notify-test") return await handleAdminNotifyTest(url, env);
         if (url.pathname === "/admin/invite") return await handleAdminInvite(url, env);
+        if (url.pathname === "/admin/delete") return await handleAdminDelete(url, env);
         return await handleAdminCsv(url, env);
       }
     } catch (err) {

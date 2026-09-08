@@ -470,5 +470,42 @@ console.log('\n== a missing setting names itself ==');
   check('same for Pushover', /not set on this Worker: PUSHOVER_USER/.test(await r3.text()));
 }
 
+console.log('\n== removing an address erases it everywhere ==');
+{
+  // Give someone live access first, so we can prove the grant dies with them.
+  emailReply = () => new Response('{"id":"inv3"}', { status: 200 });
+  await call('/admin/invite?key=super-secret-admin-key&email=deleteme@x.com');
+  const had = await (await call('/check-email?email=deleteme@x.com')).json();
+  check('has access before removal', had.status === 'approved', had.status);
+  db.prepare("INSERT INTO requests (id, email, status, created_at) VALUES ('r-del', 'deleteme@x.com', 'pending', ?1)")
+    .run(Date.now());
+
+  const r = await call('/admin/delete?key=super-secret-admin-key&email=deleteme@x.com');
+  check('redirects back to the list', r.status === 302, r.status);
+  check('goes to the admin page', (r.headers.get('location') || '').includes('/admin?key='));
+
+  check('gone from contacts',
+    !db.prepare("SELECT 1 FROM contacts WHERE email='deleteme@x.com'").get());
+  check('gone from requests',
+    !db.prepare("SELECT 1 FROM requests WHERE email='deleteme@x.com'").get());
+  // The one that matters: a surviving grant would let a now-invisible address
+  // keep unlocking everything.
+  check('grant revoked too',
+    !db.prepare("SELECT 1 FROM approved WHERE email='deleteme@x.com'").get());
+  const after = await (await call('/check-email?email=deleteme@x.com')).json();
+  check('really cannot get in any more', after.status === 'none', after);
+
+  const body = await (await call('/admin?key=super-secret-admin-key')).text();
+  check('no longer listed', !body.includes('deleteme@x.com'));
+}
+{
+  check('needs the admin key', (await call('/admin/delete?email=x@y.com')).status === 404);
+  check('rejects a malformed address',
+    (await call('/admin/delete?key=super-secret-admin-key&email=notanemail')).status === 400);
+  const body = await (await call('/admin?key=super-secret-admin-key')).text();
+  check('every contact row offers Remove', /admin\/delete\?key=/.test(body));
+  check('Remove asks before erasing', /confirm\('Delete /.test(body));
+}
+
 console.log(failures === 0 ? '\nALL PASSED\n' : `\n${failures} FAILURE(S)\n`);
 process.exit(failures === 0 ? 0 : 1);
