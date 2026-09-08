@@ -27,10 +27,18 @@ const DB = {
   async batch(stmts) { return stmts.map((s) => s._exec()); },
 };
 
-let pushoverCalls = [];
+// Two channels, so the shim routes by host and each can be failed on its own.
+// A phone that was wiped and never re-registered shows up as a Pushover
+// rejection -- the kind the Worker used to ignore, which is the whole bug.
+let pushCalls = [], emailCalls = [];
+let pushReply = () => new Response('{"status":1,"request":"abc"}', { status: 200 });
+let emailReply = () => new Response('{"id":"e1"}', { status: 200 });
 globalThis.fetch = async (url, opts) => {
-  pushoverCalls.push({ url, body: opts && opts.body && opts.body.toString() });
-  return new Response('{"status":1}', { status: 200 });
+  const u = String(url);
+  const body = opts && opts.body && opts.body.toString();
+  if (u.includes('pushover')) { pushCalls.push({ u, body }); return pushReply(); }
+  if (u.includes('resend')) { emailCalls.push({ u, body }); return emailReply(); }
+  throw new Error('unexpected outbound fetch: ' + u);
 };
 
 const env = {
@@ -38,6 +46,9 @@ const env = {
   GATE_PASSWORD: 'the-real-gate-password',
   PUSHOVER_TOKEN: 'ptoken',
   PUSHOVER_USER: 'puser',
+  RESEND_TOKEN: 're_test',
+  NOTIFY_EMAIL_TO: 'me@example.com',
+  NOTIFY_EMAIL_FROM: 'Access <access@example.com>',
   ALLOWED_ORIGIN: 'https://thepurvangmehta.com',
   ADMIN_KEY: 'super-secret-admin-key',
 };
@@ -81,8 +92,10 @@ let reqId;
   const j = await r.json();
   reqId = j.requestId;
   check('returns pending + requestId', j.status === 'pending' && !!j.requestId, j);
-  check('pushover notified once', pushoverCalls.length === 1, pushoverCalls.length);
-  check('notification carries approve link', (pushoverCalls[0].body || '').includes(encodeURIComponent(`/approve?token=${reqId}`).replace(/%2F/g, '%2F')) || (pushoverCalls[0].body || '').includes(reqId), true);
+  check('pushover notified once', pushCalls.length === 1, pushCalls.length);
+  check('no email while pushover works', emailCalls.length === 0, emailCalls.length);
+  check('notification carries approve link', (pushCalls[0].body || '').includes(reqId));
+  check('notification names the requester', (pushCalls[0].body || '').includes('jane%40acme.com'));
   check('secret NOT leaked while pending', !JSON.stringify(j).includes(env.GATE_PASSWORD), j);
 }
 {
@@ -108,10 +121,10 @@ let reqId;
   check('email now globally approved', j.status === 'approved' && j.secret === env.GATE_PASSWORD, j);
 }
 {
-  const before = pushoverCalls.length;
+  const before = pushCalls.length;
   const j = await (await postJson('/request-access', { email: 'jane@acme.com' }, { 'CF-Connecting-IP': '1.1.1.1' })).json();
   check('approved email short-circuits', j.status === 'approved' && j.secret === env.GATE_PASSWORD, j);
-  check('no new notification sent', pushoverCalls.length === before, pushoverCalls.length);
+  check('no new notification sent', pushCalls.length === before, pushCalls.length);
 }
 {
   const r = await call(`/approve?token=${reqId}`);
@@ -266,6 +279,195 @@ console.log('\n== contacts survive the 7-day purge of requests ==');
   db.prepare('DELETE FROM requests').run();   // simulate the purge
   const after = (await (await call('/admin?key=super-secret-admin-key')).text()).includes('jane@acme.com');
   check('contact still listed after requests are gone', before && after);
+}
+
+console.log('\n== Pushover dies -> email fallback carries it, and says so ==');
+{
+  // A wiped phone that was never re-registered, from the Worker's point of view.
+  pushReply = () => new Response(
+    '{"status":0,"errors":["user identifier is not a valid user, group, or subscribed user key"]}',
+    { status: 400 });
+  const before = emailCalls.length;
+
+  const r = await postJson('/request-access', { email: 'fallback@x.com' }, { 'CF-Connecting-IP': '10.10.10.1' });
+  const j = await r.json();
+  check('visitor still gets 200 pending', r.status === 200 && j.status === 'pending', j);
+  check('email fallback fired', emailCalls.length === before + 1, emailCalls.length - before);
+  check('fallback email names the requester', (emailCalls[before].body || '').includes('fallback@x.com'));
+
+  const row = db.prepare('SELECT notified_at, notified_via, notify_error FROM requests WHERE id = ?1').get(j.requestId);
+  check('recorded as delivered', !!row.notified_at, row);
+  check('recorded as delivered by email', row.notified_via === 'email', row);
+  // The point of the fallback: it must not hide that the phone stopped working.
+  check('primary failure kept anyway', /not a valid user/.test(row.notify_error || ''), row.notify_error);
+
+  const body = await (await call('/admin?key=super-secret-admin-key')).text();
+  check('banner is amber, not green', /only by the fallback/.test(body));
+  check('banner is not a false all-clear', !/Notifications are working/.test(body));
+  check('banner shows the Pushover reason', /not a valid user/.test(body));
+  check('banner tells you how to fix it', /PUSHOVER_USER/.test(body));
+}
+
+console.log('\n== both channels dead: recorded, surfaced, still non-fatal ==');
+{
+  pushReply = () => new Response('{"status":0,"errors":["no active devices"]}', { status: 400 });
+  emailReply = () => new Response('{"message":"domain not verified"}', { status: 403 });
+
+  const r = await postJson('/request-access', { email: 'nochannel@x.com' }, { 'CF-Connecting-IP': '10.10.10.2' });
+  const j = await r.json();
+  check('visitor still gets 200 pending', r.status === 200 && j.status === 'pending', j);
+  const row = db.prepare('SELECT notified_at, notified_via, notify_error FROM requests WHERE id = ?1').get(j.requestId);
+  check('recorded as undelivered', row.notified_at === null && row.notified_via === null, row);
+  check('both reasons kept', /no active devices/.test(row.notify_error) && /domain not verified/.test(row.notify_error), row.notify_error);
+
+  const body = await (await call('/admin?key=super-secret-admin-key')).text();
+  check('banner is red', /NOT being delivered/.test(body));
+  check('pending row marked undelivered', /not delivered/.test(body));
+}
+{
+  // An unreachable network must not 500 the visitor either.
+  pushReply = () => { throw new Error('connection reset'); };
+  const r = await postJson('/request-access', { email: 'netfail@x.com' }, { 'CF-Connecting-IP': '10.10.10.3' });
+  check('network failure -> still 200 pending', r.status === 200, r.status);
+  const j = await r.json();
+  const row = db.prepare('SELECT notify_error FROM requests WHERE id = ?1').get(j.requestId);
+  check('network failure recorded', /could not reach/.test(row.notify_error || ''), row);
+}
+
+console.log('\n== /admin/notify-test tests each channel separately ==');
+{
+  const locked = await call('/admin/notify-test');
+  check('no key -> 404', locked.status === 404, locked.status);
+
+  pushReply = () => new Response('{"status":0,"errors":["no active devices"]}', { status: 400 });
+  emailReply = () => new Response('{"id":"e1"}', { status: 200 });
+  const partial = await call('/admin/notify-test?key=super-secret-admin-key');
+  const pBody = await partial.text();
+  check('a working fallback keeps it a 200', partial.status === 200, partial.status);
+  check('names the failing channel', /Pushover \(your phone\): failed/.test(pBody));
+  check('names the working one', /Email fallback: sent/.test(pBody));
+  check('shows the reason', /no active devices/.test(pBody));
+
+  pushReply = () => new Response('{"status":1}', { status: 200 });
+  const pBefore = pushCalls.length, eBefore = emailCalls.length;
+  const good = await call('/admin/notify-test?key=super-secret-admin-key');
+  const gBody = await good.text();
+  check('both channels really sent', pushCalls.length === pBefore + 1 && emailCalls.length === eBefore + 1);
+  check('200', good.status === 200, good.status);
+  check('both reported sent', /Pushover \(your phone\): sent/.test(gBody) && /Email fallback: sent/.test(gBody));
+  check('test leaks no gate password', !gBody.includes(env.GATE_PASSWORD));
+  check('test notification carries no approve link', !/approve%3Ftoken/.test(pushCalls[pBefore].body || ''));
+}
+
+console.log('\n== a healthy channel reads as healthy ==');
+{
+  const j = await (await postJson('/request-access', { email: 'healthy@x.com' }, { 'CF-Connecting-IP': '10.10.10.4' })).json();
+  const row = db.prepare('SELECT notified_at, notified_via, notify_error FROM requests WHERE id = ?1').get(j.requestId);
+  check('success recorded via pushover', !!row.notified_at && row.notified_via === 'pushover' && row.notify_error === null, row);
+  const body = await (await call('/admin?key=super-secret-admin-key')).text();
+  check('banner reads healthy', /Notifications are working/.test(body));
+  check('no false alarm', !/NOT being delivered/.test(body) && !/only by the fallback/.test(body));
+
+  const h = await (await call('/health')).json();
+  check('health lists both channels', JSON.stringify(h.notifyChannels) === '["pushover","email"]', h);
+  const bare = await worker.fetch(new Request(BASE + '/health'), { ...env, PUSHOVER_USER: undefined, RESEND_TOKEN: undefined });
+  check('health lists none when unset', JSON.stringify((await bare.json()).notifyChannels) === '[]');
+}
+
+console.log('\n== a green test counts as evidence (banner stops saying "not verified") ==');
+{
+  // Wipe every trace of a delivery so the banner starts from "unknown".
+  db.prepare('DELETE FROM notify_status').run();
+  const fresh = await (await call('/admin?key=super-secret-admin-key')).text();
+  check('starts as not verified', /Notifications: not verified/.test(fresh));
+
+  pushReply = () => new Response('{"status":1}', { status: 200 });
+  await call('/admin/notify-test?key=super-secret-admin-key');
+
+  const after = await (await call('/admin?key=super-secret-admin-key')).text();
+  check('a passing test turns it green', /Notifications are working/.test(after));
+  check('and says it was a test, not a real request', /Last test delivered/.test(after));
+  check('no longer claims unverified', !/Notifications: not verified/.test(after));
+}
+{
+  // A failing test must equally turn it red, not leave a stale green.
+  pushReply = () => new Response('{"status":0,"errors":["no active devices"]}', { status: 400 });
+  emailReply = () => new Response('{"message":"nope"}', { status: 403 });
+  await call('/admin/notify-test?key=super-secret-admin-key');
+  const body = await (await call('/admin?key=super-secret-admin-key')).text();
+  check('a failing test turns it red', /NOT being delivered/.test(body));
+  check('shows the reason', /no active devices/.test(body));
+}
+
+console.log('\n== inviting someone whose request never reached you ==');
+{
+  emailReply = () => new Response('{"id":"inv1"}', { status: 200 });
+  const before = emailCalls.length;
+  const r = await call('/admin/invite?key=super-secret-admin-key&email=praneeth@example.com');
+  const body = await r.text();
+  check('200', r.status === 200, r.status);
+  check('confirms it went out', /Invite sent/.test(body));
+
+  const sent = JSON.parse(emailCalls[before].body);
+  check('addressed to the visitor, not the owner', sent.to[0] === 'praneeth@example.com', sent.to);
+  check('replies come back to the owner', sent.reply_to === env.NOTIFY_EMAIL_TO, sent.reply_to);
+  check('apologises', /never heard back|Sorry/i.test(sent.html));
+  check('tells them to use that same address', sent.html.includes('praneeth@example.com'));
+  check('does NOT leak the gate password', !sent.html.includes(env.GATE_PASSWORD));
+
+  // The point of the whole thing: they can now get in without asking again.
+  const g = await (await call('/check-email?email=praneeth@example.com')).json();
+  check('they can now unlock', g.status === 'approved' && g.secret === env.GATE_PASSWORD, g.status);
+  const days = (g.expiresAt - Date.now()) / 86400000;
+  check('window is ~7 days, not 4 hours', days > 6.9 && days <= 7.01, days);
+}
+{
+  // If the mail cannot be sent, granting access would make the admin list claim
+  // someone can get in who was never told. Neither should happen.
+  emailReply = () => new Response('{"message":"domain not verified"}', { status: 403 });
+  const r = await call('/admin/invite?key=super-secret-admin-key&email=nomail@example.com');
+  const body = await r.text();
+  check('reports the failure', r.status === 502 && /Invite not sent/.test(body), r.status);
+  check('names the reason', /domain not verified/.test(body));
+  const g = await (await call('/check-email?email=nomail@example.com')).json();
+  check('no access granted when the mail failed', g.status === 'none', g);
+}
+{
+  const bad = await call('/admin/invite?key=super-secret-admin-key&email=notanemail');
+  check('rejects a malformed address', bad.status === 400, bad.status);
+  const locked = await call('/admin/invite?email=x@y.com');
+  check('needs the admin key', locked.status === 404, locked.status);
+}
+{
+  const linkFor = (body, email) =>
+    new RegExp('admin/invite\\?key=[^"]*' + encodeURIComponent(email).replace('.', '\\.')).test(body);
+
+  const before = await (await call('/admin?key=super-secret-admin-key')).text();
+  check('offers Invite to a contact with no access', linkFor(before, 'spam@x.com'));
+
+  emailReply = () => new Response('{"id":"inv2"}', { status: 200 });
+  await call('/admin/invite?key=super-secret-admin-key&email=spam@x.com');
+
+  const after = await (await call('/admin?key=super-secret-admin-key')).text();
+  check('button gone once they have access', !linkFor(after, 'spam@x.com'));
+  check('and they now show as having access', /7d left|168h left|\d+h left/.test(after));
+}
+
+console.log('\n== a missing setting names itself ==');
+{
+  const partial = { ...env, NOTIFY_EMAIL_FROM: undefined };
+  const r = await worker.fetch(new Request(BASE + '/admin/notify-test?key=super-secret-admin-key'), partial);
+  const body = await r.text();
+  check('names the one that is missing', /not set on this Worker: NOTIFY_EMAIL_FROM/.test(body));
+  check('does not blame the ones that are set', !/RESEND_TOKEN, NOTIFY_EMAIL_TO/.test(body));
+
+  const blank = { ...env, RESEND_TOKEN: '   ' };
+  const r2 = await worker.fetch(new Request(BASE + '/admin/notify-test?key=super-secret-admin-key'), blank);
+  check('whitespace counts as missing', /not set on this Worker: RESEND_TOKEN/.test(await r2.text()));
+
+  const noPush = { ...env, PUSHOVER_USER: undefined };
+  const r3 = await worker.fetch(new Request(BASE + '/admin/notify-test?key=super-secret-admin-key'), noPush);
+  check('same for Pushover', /not set on this Worker: PUSHOVER_USER/.test(await r3.text()));
 }
 
 console.log(failures === 0 ? '\nALL PASSED\n' : `\n${failures} FAILURE(S)\n`);

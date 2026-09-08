@@ -4,8 +4,8 @@
 //   1. Visitor POSTs their email to /request-access.
 //   2. If that email is already approved, the gate password ships back
 //      immediately and the browser decrypts as usual.
-//   3. Otherwise a pending request is stored and a Pushover notification
-//      is sent with Approve/Deny links.
+//   3. Otherwise a pending request is stored and you are notified with
+//      Approve/Deny links -- Pushover first, email as the fallback.
 //   4. The browser polls /check-access until the request resolves.
 //   5. Tapping Approve/Deny hits /approve or /deny. An approval grants that
 //      email every gated case study for ACCESS_TTL_MS (4 hours), after which
@@ -24,16 +24,25 @@
 //   permanent, which contradicts the time-limited policy below, so they are
 //   deliberately not carried over. The binding can be deleted.)
 // Secrets (dashboard -> Settings -> Variables, "Encrypt"):
-//   GATE_PASSWORD   - must match CS_GATE_PW used by build.py
-//   PUSHOVER_TOKEN  - Pushover application token
-//   PUSHOVER_USER   - Pushover user/group key
-//   ADMIN_KEY       - secret for /admin?key=... , the collected-email list
+//   GATE_PASSWORD     - must match CS_GATE_PW used by build.py
+//   ADMIN_KEY         - secret for /admin?key=... , the collected-email list
+//   PUSHOVER_TOKEN    - Pushover application token (pushover.net)
+//   PUSHOVER_USER     - Pushover user/group key
+//   RESEND_TOKEN      - optional, enables the email fallback
+//   NOTIFY_EMAIL_TO   - where the fallback lands (your inbox)
+//   NOTIFY_EMAIL_FROM - verified Resend sender, e.g. "Access <a@example.com>"
 // Plain var:
 //   ALLOWED_ORIGIN  - site origin allowed to call this Worker via fetch
 
 // How long an approval lasts. Keep in step with CS_ACCESS_TTL_HOURS in
 // build.py, which is what the gate UI tells visitors.
 const ACCESS_TTL_MS = 4 * 60 * 60 * 1000;
+// An invite is different from an approval on purpose. An approval answers a
+// visitor who is sitting on the page RIGHT NOW, so four hours is plenty. An
+// invite is you reaching out to someone who is not expecting it and may open
+// the mail tomorrow -- a four-hour window would be expired before they read
+// it, which is worse than not sending it.
+const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const PENDING_TTL_MS = 24 * 60 * 60 * 1000;   // a request goes stale after 24h
 const PURGE_AFTER_MS = 7 * 24 * 60 * 60 * 1000; // rows deleted after 7 days
 const RATE_WINDOW_MS = 60 * 60 * 1000;
@@ -112,7 +121,10 @@ async function ensureSchema(env) {
          status TEXT NOT NULL,
          ip TEXT,
          created_at INTEGER NOT NULL,
-         decided_at INTEGER
+         decided_at INTEGER,
+         notified_at INTEGER,
+         notified_via TEXT,
+         notify_error TEXT
        )`
     ),
     env.DB.prepare(
@@ -133,6 +145,19 @@ async function ensureSchema(env) {
          hits INTEGER NOT NULL DEFAULT 1
        )`
     ),
+    // One row (id = 1) holding the last notification outcome from ANY source,
+    // real request or test alike. Kept separate from `requests` so pressing
+    // "test" counts as evidence -- a green test followed by an amber "not
+    // verified" banner just teaches you to distrust the banner.
+    env.DB.prepare(
+      `CREATE TABLE IF NOT EXISTS notify_status (
+         id INTEGER PRIMARY KEY,
+         at INTEGER,
+         via TEXT,
+         error TEXT,
+         was_test INTEGER NOT NULL DEFAULT 0
+       )`
+    ),
     env.DB.prepare(
       `CREATE INDEX IF NOT EXISTS idx_requests_email ON requests(email, created_at)`
     ),
@@ -148,6 +173,16 @@ async function ensureSchema(env) {
     await env.DB.prepare("UPDATE approved SET expires_at = created_at WHERE expires_at IS NULL").run();
   } catch (e) {
     // Column already present: nothing to migrate.
+  }
+  // Deployments from before push delivery was checked have no record of
+  // whether a notification landed. Added separately so an existing `requests`
+  // table picks them up without being rebuilt.
+  for (const col of ["notified_at INTEGER", "notified_via TEXT", "notify_error TEXT"]) {
+    try {
+      await env.DB.prepare(`ALTER TABLE requests ADD COLUMN ${col}`).run();
+    } catch (e) {
+      // Column already present: nothing to migrate.
+    }
   }
   schemaReady = true;
 }
@@ -173,12 +208,69 @@ async function countSince(env, column, value, since) {
   return row ? row.n : 0;
 }
 
+// ---- notifying you -------------------------------------------------------
+//
+// Two independent channels, tried in order: Pushover for the buzz on your
+// phone, email as the fallback. Nothing here ever throws -- a notification
+// that could not be sent is not a reason to fail the visitor's request, whose
+// row is already stored and visible on /admin either way.
+//
+// A fallback is only worth having if it cannot HIDE the primary's failure. So
+// a request delivered by email alone is recorded as delivered *and* as a
+// Pushover error, and the admin page shows it amber rather than green. Silent
+// degradation is the failure mode this file exists to prevent: it is exactly
+// what let a wiped phone go unnoticed for a month.
+//
+// Why Pushover rather than a topic service like ntfy: this Worker sends from
+// Cloudflare's SHARED outbound IPs, and ntfy's free tier meters 250 messages a
+// day per IP -- pooled with every other Worker on that address. It returned
+// HTTP 429 "daily message quota reached" on the second message ever sent here.
+// Pushover meters per account (10k/month), so no stranger's traffic can starve
+// it. Do not swap back to an IP-metered service without re-checking that.
+
+// "one of these is missing" sends you round every variable you already set.
+// Name the ones actually absent, and a typo'd name reads as the real one
+// missing -- which is the same fix either way: check the spelling in Cloudflare.
+function missingVars(env, names) {
+  return names.filter((n) => !env[n] || !String(env[n]).trim());
+}
+
+async function postToPushover(env, fields) {
+  const missing = missingVars(env, ["PUSHOVER_TOKEN", "PUSHOVER_USER"]);
+  if (missing.length) {
+    return { ok: false, detail: `not set on this Worker: ${missing.join(", ")} (check the spelling in Settings -> Variables)` };
+  }
+  let res, text;
+  try {
+    res = await fetch("https://api.pushover.net/1/messages.json", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        token: env.PUSHOVER_TOKEN,
+        user: env.PUSHOVER_USER,
+        ...fields,
+      }),
+    });
+    text = (await res.text()).slice(0, 400);
+  } catch (err) {
+    return { ok: false, detail: `could not reach Pushover: ${String((err && err.message) || err)}` };
+  }
+  let parsed = null;
+  try { parsed = JSON.parse(text); } catch { /* keep the raw text below */ }
+  if (res.ok && parsed && parsed.status === 1) return { ok: true, detail: "" };
+  // Pushover puts the human-readable reason in `errors` -- "user identifier is
+  // not a valid user", "no active devices", and so on. That string is the whole
+  // point of reading this response, so keep it verbatim.
+  const why = parsed && Array.isArray(parsed.errors) && parsed.errors.length
+    ? parsed.errors.join("; ")
+    : (text || "(empty response)");
+  return { ok: false, detail: `Pushover returned HTTP ${res.status}: ${why}` };
+}
+
 async function sendPushover(env, selfOrigin, email, requestId) {
   const approveUrl = `${selfOrigin}/approve?token=${requestId}`;
   const denyUrl = `${selfOrigin}/deny?token=${requestId}`;
-  const body = new URLSearchParams({
-    token: env.PUSHOVER_TOKEN,
-    user: env.PUSHOVER_USER,
+  return await postToPushover(env, {
     title: "Case study access request",
     message:
       `<b>${esc(email)}</b> wants access to your gated case studies.<br><br>` +
@@ -187,11 +279,124 @@ async function sendPushover(env, selfOrigin, email, requestId) {
     url: approveUrl,
     url_title: "Approve",
   });
-  await fetch("https://api.pushover.net/1/messages.json", {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body,
+}
+
+async function postEmail(env, { subject, html, to, replyTo }) {
+  const missing = missingVars(env, ["RESEND_TOKEN", "NOTIFY_EMAIL_TO", "NOTIFY_EMAIL_FROM"]);
+  if (missing.length) {
+    return { ok: false, detail: `not set on this Worker: ${missing.join(", ")} (check the spelling in Settings -> Variables)` };
+  }
+  let res, text;
+  try {
+    res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${env.RESEND_TOKEN}`,
+      },
+      body: JSON.stringify({
+        from: env.NOTIFY_EMAIL_FROM,
+        to: [to || env.NOTIFY_EMAIL_TO],
+        subject,
+        html,
+        ...(replyTo ? { reply_to: replyTo } : {}),
+      }),
+    });
+    text = (await res.text()).slice(0, 400);
+  } catch (err) {
+    return { ok: false, detail: `could not reach Resend: ${String((err && err.message) || err)}` };
+  }
+  if (res.ok) return { ok: true, detail: "" };
+  let parsed = null;
+  try { parsed = JSON.parse(text); } catch { /* keep the raw text below */ }
+  const why = (parsed && (parsed.message || parsed.error)) || text || "(empty response)";
+  return { ok: false, detail: `Resend returned HTTP ${res.status}: ${why}` };
+}
+
+async function sendEmailNotice(env, selfOrigin, email, requestId) {
+  const approveUrl = `${selfOrigin}/approve?token=${requestId}`;
+  const denyUrl = `${selfOrigin}/deny?token=${requestId}`;
+  return await postEmail(env, { subject: `Case study access request: ${email}`, html:
+    `<p><b>${esc(email)}</b> wants access to your gated case studies.</p>
+     <p><a href="${approveUrl}">Approve</a> &nbsp;|&nbsp; <a href="${denyUrl}">Deny</a></p>
+     <p style="color:#777;font-size:13px">You are getting this by email because
+     the Pushover notification did not go through &mdash; worth fixing on the
+     admin page, or your phone has stopped alerting you.</p>` });
+}
+
+// The apology-and-access mail for someone whose request never reached you.
+// Goes TO the visitor, replies come back to your inbox.
+async function sendInviteEmail(env, email, days) {
+  const site = env.INVITE_URL || `${env.ALLOWED_ORIGIN || ""}/projects`;
+  const who = env.INVITE_SIGNATURE || "Purvang";
+  return await postEmail(env, {
+    to: email,
+    replyTo: env.NOTIFY_EMAIL_TO,
+    subject: "Sorry for the delay \u2014 here's access to my case studies",
+    html:
+      `<p>Hi,</p>
+       <p>You asked to see my gated case studies a while ago and never heard back.
+       That was my fault: the alerts telling me about requests had quietly stopped
+       working, so yours never reached me. Sorry to have left you waiting.</p>
+       <p>You have access now. Go to <a href="${esc(site)}">${esc(site)}</a>, open any
+       locked case study, and enter this same address &mdash;
+       <b>${esc(email)}</b> &mdash; and it will open straight away. No waiting for
+       approval this time.</p>
+       <p>That holds for the next ${days} days. If it lapses, just ask again
+       through the site &mdash; requests reach me properly now.</p>
+       <p>Thanks for your patience,<br>${esc(who)}</p>`,
   });
+}
+
+function notifyChannels(env) {
+  const out = [];
+  if (env.PUSHOVER_TOKEN && env.PUSHOVER_USER) out.push("pushover");
+  if (env.RESEND_TOKEN && env.NOTIFY_EMAIL_TO && env.NOTIFY_EMAIL_FROM) out.push("email");
+  return out;
+}
+
+// Tries Pushover, falls back to email. Returns which channel worked, and keeps
+// the primary's error even on success so a degraded delivery still reads as a
+// problem rather than disappearing.
+async function notifyOwner(env, selfOrigin, email, requestId) {
+  const primary = await sendPushover(env, selfOrigin, email, requestId);
+  if (primary.ok) return { ok: true, via: "pushover", detail: null };
+
+  const fallback = await sendEmailNotice(env, selfOrigin, email, requestId);
+  if (fallback.ok) {
+    return { ok: true, via: "email", detail: `delivered by email fallback only -- Pushover failed: ${primary.detail}` };
+  }
+  return { ok: false, via: null, detail: `pushover: ${primary.detail} // email: ${fallback.detail}` };
+}
+
+// Every delivery attempt lands here, whether it came from a real request or
+// from the test button, so the banner reflects the last thing actually tried.
+async function recordNotifyResult(env, { ok, via, detail, wasTest }) {
+  await env.DB.prepare(
+    `INSERT INTO notify_status (id, at, via, error, was_test) VALUES (1, ?1, ?2, ?3, ?4)
+     ON CONFLICT(id) DO UPDATE SET at = excluded.at, via = excluded.via,
+       error = excluded.error, was_test = excluded.was_test`
+  ).bind(ok ? Date.now() : null, via, detail, wasTest ? 1 : 0).run();
+}
+
+// State of notification delivery, taken from the last attempt of any kind.
+// "unknown" means nothing has been sent since this was deployed, which is not
+// the same as healthy -- say so rather than showing a reassuring green.
+async function notifyHealth(env) {
+  const channels = notifyChannels(env);
+  if (!channels.length) {
+    return { state: "unconfigured", detail: "no notification channel is configured on this Worker", at: null, via: null };
+  }
+  const row = await env.DB.prepare(
+    "SELECT at, via, error, was_test FROM notify_status WHERE id = 1"
+  ).first();
+  if (!row || (row.at === null && !row.error)) {
+    return { state: "unknown", detail: "no notification has been attempted yet", at: null, via: null };
+  }
+  const wasTest = !!row.was_test;
+  if (!row.at) return { state: "failing", detail: row.error, at: null, via: null, wasTest };
+  if (row.error) return { state: "degraded", detail: row.error, at: row.at, via: row.via, wasTest };
+  return { state: "ok", detail: "", at: row.at, via: row.via, wasTest };
 }
 
 async function handleRequestAccess(req, env) {
@@ -231,7 +436,16 @@ async function handleRequestAccess(req, env) {
     "INSERT INTO requests (id, email, status, ip, created_at) VALUES (?1, ?2, 'pending', ?3, ?4)"
   ).bind(requestId, email, ip, Date.now()).run();
 
-  await sendPushover(env, new URL(req.url).origin, email, requestId);
+  // Stored before the notification is attempted, so the Approve link works
+  // even if the visitor's row and the push race each other.
+  const sent = await notifyOwner(env, new URL(req.url).origin, email, requestId);
+  await env.DB.prepare(
+    "UPDATE requests SET notified_at = ?1, notified_via = ?2, notify_error = ?3 WHERE id = ?4"
+  ).bind(sent.ok ? Date.now() : null, sent.via, sent.detail, requestId).run();
+  await recordNotifyResult(env, { ...sent, wasTest: false });
+
+  // Still "pending" either way: the request is genuinely waiting on a
+  // decision, and a visitor cannot act on the owner's broken phone.
   return json({ status: "pending", requestId }, 200, origin);
 }
 
@@ -351,6 +565,19 @@ function adminPage(body, status = 200) {
        .btn{display:inline-block;padding:.3rem .7rem;border-radius:7px;text-decoration:none;
          font-size:.8rem;font-weight:600;margin-right:.3rem}
        .approve{background:#0a7038;color:#fff}.deny{background:#eee;color:#333}
+       .test{background:#e5e5e5;color:#111;border:1px solid #ccc}
+       .banner{padding:.8rem .9rem;border-radius:10px;margin:0 0 1.25rem;border:1px solid}
+       .banner b{display:block;margin-bottom:.2rem}
+       .banner code{word-break:break-all;font:12px/1.5 ui-monospace,monospace}
+       .banner p{margin:.4rem 0 0}
+       .bad{background:#fdeaea;border-color:#f0b4b4;color:#7d1414}
+       .warn2{background:#fdf5e2;border-color:#e8d69a;color:#6b5310}
+       .good{background:#e7f7ed;border-color:#a9dfc0;color:#0a7038}
+       @media (prefers-color-scheme:dark){
+         .bad{background:#3a1414;border-color:#7d2b2b;color:#ffb4b4}
+         .warn2{background:#3a3212;border-color:#7d6f2b;color:#f3dd94}
+         .good{background:#0f2e1c;border-color:#2b7d4e;color:#9fe0bb}
+         .test{background:#2a2a2a;color:#eee;border-color:#444}}
        textarea{width:100%;height:6rem;font:12px/1.5 ui-monospace,monospace;padding:.6rem;
          border:1px solid #ddd;border-radius:8px;background:#fafafa;color:inherit}
        .empty{color:#888;font-style:italic}
@@ -360,13 +587,55 @@ function adminPage(body, status = 200) {
   );
 }
 
+// The banner that would have told you the phone reset had broken this,
+// instead of you finding out some other way.
+function pushBanner(health, key) {
+  const test = `<a class="btn test" href="/admin/notify-test?key=${key}">Test both channels</a>`;
+  if (health.state === "ok") {
+    return `<div class="banner good"><b>Notifications are working</b>
+      Last ${health.wasTest ? "test" : "one"} delivered ${esc(ago(health.at))}
+      by ${esc(health.via)}. ${test}</div>`;
+  }
+  if (health.state === "degraded") {
+    // The whole point of a fallback: it must not hide the primary's failure.
+    return `<div class="banner warn2"><b>Delivered, but only by the fallback</b>
+      The last request reached you by ${esc(health.via)} ${esc(ago(health.at))}
+      because Pushover failed &mdash; so your phone is not buzzing any more. ${test}
+      <p><code>${esc(health.detail)}</code></p>
+      <p>Usually the phone: open Pushover on it, sign in to the same account, and
+      check the device is listed at <a href="https://pushover.net/">pushover.net</a>.
+      If you re-created the account, copy its user key into
+      <code>PUSHOVER_USER</code>.</p></div>`;
+  }
+  if (health.state === "unknown") {
+    return `<div class="banner warn2"><b>Notifications: not verified</b>
+      Nothing has been sent yet, so there is no evidence either way. ${test}</div>`;
+  }
+  const fix = health.state === "unconfigured"
+    ? `<p>Set <code>PUSHOVER_TOKEN</code> and <code>PUSHOVER_USER</code> (and
+       optionally the Resend fallback vars) under Worker &rarr; Settings &rarr;
+       Variables.</p>`
+    : `<p>Usually the phone: install Pushover on it and sign in to the same
+       account, then confirm the device is listed at
+       <a href="https://pushover.net/">pushover.net</a>. A wiped handset is
+       de-registered even though your user key never changes. If the error
+       mentions the user key itself, copy the current one from that page into
+       <code>PUSHOVER_USER</code>.</p>`;
+  return `<div class="banner bad"><b>Notifications are NOT being delivered</b>
+    Requests still land on this page, but nothing is reaching you.
+    ${test}
+    <p><code>${esc(health.detail)}</code></p>${fix}</div>`;
+}
+
 async function handleAdmin(url, env) {
   const key = encodeURIComponent(url.searchParams.get("key") || "");
   const now = Date.now();
 
+  const health = await notifyHealth(env);
+
   const pending = (await env.DB.prepare(
-    `SELECT id, email, created_at FROM requests WHERE status = 'pending'
-       AND created_at > ?1 ORDER BY created_at DESC`
+    `SELECT id, email, created_at, notified_at, notify_error FROM requests
+      WHERE status = 'pending' AND created_at > ?1 ORDER BY created_at DESC`
   ).bind(now - PENDING_TTL_MS).all()).results || [];
 
   const contacts = (await env.DB.prepare(
@@ -380,7 +649,8 @@ async function handleAdmin(url, env) {
   const pendingRows = pending.length
     ? pending.map((r) => `<tr>
         <td class="email">${esc(r.email)}</td>
-        <td>${esc(ago(r.created_at))}</td>
+        <td>${esc(ago(r.created_at))}${r.notified_at
+              ? "" : ` <span class="pill no" title="${esc(r.notify_error || "")}">not delivered</span>`}</td>
         <td>
           <a class="btn approve" href="/approve?token=${encodeURIComponent(r.id)}&key=${key}">Approve</a>
           <a class="btn deny" href="/deny?token=${encodeURIComponent(r.id)}&key=${key}">Deny</a>
@@ -395,12 +665,17 @@ async function handleAdmin(url, env) {
               : `<span class="pill no">no access</span>`}</td>
         <td>${esc(ago(c.last_seen))}</td>
         <td>${esc(ago(c.first_seen))}</td>
-        <td>${esc(c.hits)}</td></tr>`).join("")
-    : `<tr><td colspan="5" class="empty">No one has asked yet.</td></tr>`;
+        <td>${esc(c.hits)}</td>
+        <td>${c.expires_at && c.expires_at > now ? "" :
+          `<a class="btn test" href="/admin/invite?key=${key}&email=${encodeURIComponent(c.email)}"
+              onclick="return confirm('Email ${esc(c.email)} an apology and give them access?')"
+              >Invite</a>`}</td></tr>`).join("")
+    : `<tr><td colspan="6" class="empty">No one has asked yet.</td></tr>`;
 
   return adminPage(`
     <h1>Access requests</h1>
     <p class="sub">Everyone who has entered their email on a gated case study.</p>
+    ${pushBanner(health, key)}
     <div class="row">
       <div class="card"><b>${contacts.length}</b><span>emails collected</span></div>
       <div class="card"><b>${pending.length}</b><span>waiting on you</span></div>
@@ -413,8 +688,12 @@ async function handleAdmin(url, env) {
     </table></div>
 
     <h2>All emails collected</h2>
+    <p class="sub" style="margin:-.3rem 0 .6rem">
+      <b>Invite</b> emails someone an apology and opens every gated case study for
+      them for ${Math.round(INVITE_TTL_MS / 86400000)} days &mdash; for requests that
+      never reached you. Needs the email channel configured.</p>
     <div class="wrap"><table>
-      <tr><th>Email</th><th>Access</th><th>Last seen</th><th>First seen</th><th>Times</th></tr>
+      <tr><th>Email</th><th>Access</th><th>Last seen</th><th>First seen</th><th>Times</th><th></th></tr>
       ${contactRows}
     </table></div>
 
@@ -423,6 +702,86 @@ async function handleAdmin(url, env) {
     <p class="sub" style="margin-top:.6rem">
       <a href="/admin/emails.csv?key=${key}">Download CSV</a>
     </p>`);
+}
+
+// Prove both channels end to end without waiting for a stranger to trip it.
+// Each is tested independently: the fallback working is not evidence that the
+// phone does, which is exactly the confusion this page exists to prevent.
+async function handleAdminNotifyTest(url, env) {
+  const key = encodeURIComponent(url.searchParams.get("key") || "");
+  const back = `<p class="sub" style="margin-top:1rem"><a href="/admin?key=${key}">Back to access requests</a></p>`;
+
+  const push = await postToPushover(env, {
+    title: "Test notification",
+    message: "If this buzzed, case-study access alerts reach this phone.",
+  });
+  const mail = await postEmail(env, {
+    subject: "Case study access: test notification",
+    html: `<p>If you can read this, the email fallback works.</p>`,
+  });
+
+  // A test is evidence too, so the banner reflects it. Recorded exactly the way
+  // notifyOwner would: Pushover wins, email counts as a degraded delivery, and
+  // the primary's error is kept either way.
+  await recordNotifyResult(env, push.ok
+    ? { ok: true, via: "pushover", detail: null, wasTest: true }
+    : mail.ok
+      ? { ok: true, via: "email", detail: `delivered by email fallback only -- Pushover failed: ${push.detail}`, wasTest: true }
+      : { ok: false, via: null, detail: `pushover: ${push.detail} // email: ${mail.detail}`, wasTest: true });
+
+  const row = (label, res, hint) => res.ok
+    ? `<div class="banner good"><b>${label}: sent</b> ${hint}</div>`
+    : `<div class="banner bad"><b>${label}: failed</b>
+         <p><code>${esc(res.detail)}</code></p></div>`;
+
+  return adminPage(`
+    <h1>Notification test</h1>
+    ${row("Pushover (your phone)", push,
+          "It should be on your phone now. If it is not, the account is fine but this handset is not registered to it \u2014 open Pushover on the phone, sign in, and check the device appears at pushover.net.")}
+    ${row("Email fallback", mail, "Check the inbox in NOTIFY_EMAIL_TO, and its spam folder.")}
+    <p class="sub" style="margin-top:1rem">Both failing means nothing will reach
+    you at all; only the fallback failing is survivable but worth fixing.</p>
+    ${back}`, push.ok || mail.ok ? 200 : 502);
+}
+
+// Grant access and tell them, for someone whose request never reached you.
+// The mail goes FIRST: granting access to a person who was never told is just
+// a row that makes the admin list lie about who can get in.
+async function handleAdminInvite(url, env) {
+  const key = encodeURIComponent(url.searchParams.get("key") || "");
+  const email = (url.searchParams.get("email") || "").trim().toLowerCase();
+  const back = `<p class="sub" style="margin-top:1rem"><a href="/admin?key=${key}">Back to access requests</a></p>`;
+  if (!EMAIL_RE.test(email) || email.length > 254) {
+    return adminPage(`<h1>Not a valid address</h1>${back}`, 400);
+  }
+
+  const days = Math.round(INVITE_TTL_MS / 86400000);
+  const sent = await sendInviteEmail(env, email, days);
+  if (!sent.ok) {
+    return adminPage(`
+      <h1>Invite not sent</h1>
+      <div class="banner bad"><b>Nothing was emailed, and no access was granted</b>
+        <p><code>${esc(sent.detail)}</code></p>
+        <p>Inviting people needs the email channel configured
+        (<code>RESEND_TOKEN</code>, <code>NOTIFY_EMAIL_TO</code>,
+        <code>NOTIFY_EMAIL_FROM</code>). Until then you can still approve anyone
+        who asks through the site.</p></div>
+      ${back}`, 502);
+  }
+
+  const now = Date.now();
+  await env.DB.prepare(
+    `INSERT INTO approved (email, created_at, expires_at) VALUES (?1, ?2, ?3)
+     ON CONFLICT(email) DO UPDATE SET expires_at = excluded.expires_at`
+  ).bind(email, now, now + INVITE_TTL_MS).run();
+
+  return adminPage(`
+    <h1>Invite sent</h1>
+    <div class="banner good"><b>${esc(email)} has been emailed and can now get in</b>
+      They open any locked case study, enter that same address, and it unlocks.
+      Access holds for ${days} days rather than the usual few hours, because they
+      may not read the mail today.</div>
+    ${back}`);
 }
 
 async function handleAdminCsv(url, env) {
@@ -465,7 +824,8 @@ export default {
 
     if (url.pathname === "/health") {
       return json({ ok: true, storage: "d1", accessTtlHours: ACCESS_TTL_MS / 3600000,
-                    adminConfigured: !!env.ADMIN_KEY }, 200, origin);
+                    adminConfigured: !!env.ADMIN_KEY,
+                    notifyChannels: notifyChannels(env) }, 200, origin);
     }
 
     try {
@@ -485,14 +845,19 @@ export default {
       if (url.pathname === "/deny" && req.method === "GET") {
         return await handleDecision(req, env, "denied");
       }
-      if (url.pathname === "/admin" || url.pathname === "/admin/emails.csv") {
+      if (url.pathname === "/admin" || url.pathname === "/admin/emails.csv"
+          || url.pathname === "/admin/notify-test"
+          || url.pathname === "/admin/invite") {
         if (!env.ADMIN_KEY) {
           return adminPage(`<h1>Not configured</h1><p class="sub">Set an ADMIN_KEY secret on this Worker to use this page.</p>`, 503);
         }
         if (!adminAuthed(url, env)) {
           return adminPage(`<h1>Not found</h1>`, 404);
         }
-        return url.pathname === "/admin" ? await handleAdmin(url, env) : await handleAdminCsv(url, env);
+        if (url.pathname === "/admin") return await handleAdmin(url, env);
+        if (url.pathname === "/admin/notify-test") return await handleAdminNotifyTest(url, env);
+        if (url.pathname === "/admin/invite") return await handleAdminInvite(url, env);
+        return await handleAdminCsv(url, env);
       }
     } catch (err) {
       return json({ error: "server_error", detail: String(err && err.message || err) }, 500, origin);

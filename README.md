@@ -24,6 +24,19 @@ cd site && python3 -m http.server 8080
 # open http://localhost:8080
 ```
 
+## Gated case studies and the access Worker
+
+Some case studies ship encrypted and are unlocked by an approval flow backed by
+a Cloudflare Worker in `worker/`. It is **deployed separately and by hand** —
+`deploy.sh` does not touch it. See **`worker/README.md`** for the runbook
+(setup, endpoints, what the admin banner means, what to do when notifications
+stop) and **`CLAUDE.md`** for the constraints that apply to the repo as a whole.
+
+If notifications ever go quiet, start at
+`https://case-study-access.thepurvangmehta.workers.dev/admin?key=<ADMIN_KEY>` —
+the banner at the top says whether alerts are being delivered, and every request
+is listed there whether or not anything reached your phone.
+
 ## Deploy
 
 The `site/` folder works as-is on any static host (Netlify, Vercel, Cloudflare

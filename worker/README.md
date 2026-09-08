@@ -28,15 +28,21 @@ the workload KV's caching model is wrong for.
 2. **Bind it.** Worker, Settings, Bindings, add a **D1 database** binding with
    variable name `DB` pointing at `cs-access`. The variable name must be
    exactly `DB`.
-3. **Set secrets** (Settings, Variables, tick Encrypt on all four):
+3. **Set secrets** (Settings, Variables, tick Encrypt):
    - `GATE_PASSWORD` - must exactly match `CS_GATE_PW` used by `build.py`
-   - `PUSHOVER_TOKEN` - Pushover application token
-   - `PUSHOVER_USER` - Pushover user/group key
    - `ADMIN_KEY` - any long random string; it is the password to the
      collected-email page below
+   - `PUSHOVER_TOKEN` - application token from pushover.net
+   - `PUSHOVER_USER` - your Pushover user key
+   - `RESEND_TOKEN`, `NOTIFY_EMAIL_TO`, `NOTIFY_EMAIL_FROM` - *optional*, the
+     email fallback. `NOTIFY_EMAIL_FROM` must be a verified Resend sender,
+     e.g. `Access <access@thepurvangmehta.com>`.
 4. **Set the plain var** `ALLOWED_ORIGIN` to `https://thepurvangmehta.com`.
-5. **Deploy** the code in `src/index.js` (paste it into the dashboard editor,
+5. **Register the phone**: install Pushover, sign in to that account, and
+   confirm the device is listed at [pushover.net](https://pushover.net/).
+6. **Deploy** the code in `src/index.js` (paste it into the dashboard editor,
    or `wrangler deploy` from this directory).
+7. **Verify** at `/admin/notify-test?key=<ADMIN_KEY>`, from the phone.
 
 Tables are created automatically on first request, there is no migration step.
 
@@ -82,9 +88,156 @@ Two things to know:
 | `GET /check-email?email=` | has this address already been approved |
 | `GET /approve?token=` | the Approve link in the push notification |
 | `GET /deny?token=` | the Deny link |
-| `GET /admin?key=` | collected emails, pending approvals, CSV link |
+| `GET /admin?key=` | collected emails, pending approvals, push status, CSV link |
 | `GET /admin/emails.csv?key=` | CSV export of every address |
+| `GET /admin/notify-test?key=` | tests Pushover and email separately, shows what each said |
+| `GET /admin/invite?key=&email=` | apologise to someone by email and grant them access |
 | `GET /health` | binding sanity check |
+
+## How you get told
+
+Two independent channels, tried in order:
+
+1. **Pushover** - the buzz on your phone, with Approve/Deny in the notification.
+2. **Email via Resend** - the fallback, only used when Pushover fails. No app,
+   no device registration, nothing to lose when a phone is replaced.
+
+A fallback is only worth having if it cannot *hide* the primary's failure, so a
+request delivered by email alone is recorded as delivered **and** as a Pushover
+error, and `/admin` shows it amber rather than green. Silent degradation is the
+failure mode this file exists to prevent.
+
+### Why not ntfy (or anything else metered per IP)
+
+This was tried and reverted. ntfy's free tier allows **250 messages per day per
+IP address**, and a Cloudflare Worker has no IP of its own - outbound requests
+share Cloudflare's address pool with every other customer's Worker. The quota
+was already spent by strangers, so ntfy returned `HTTP 429 daily message quota
+reached` on the *second* message ever sent. That would recur unpredictably
+forever.
+
+Pushover meters per account (10,000 messages/month free, and this Worker sends
+single figures), so nobody else's traffic can starve it. **Before swapping in
+any new provider, check how it meters.** Per-IP limits do not work from here.
+
+## Inviting someone whose request never reached you
+
+When notifications were broken, people asked and got nothing back. The **Invite**
+button beside any contact without live access emails them an apology, tells them
+to enter that same address on any locked case study, and grants it.
+
+Two deliberate differences from a normal approval:
+
+- **The mail goes first.** If it cannot be sent, no access is granted, because a
+  grant to someone who was never told just makes the admin list lie about who
+  can get in.
+- **The window is 7 days** (`INVITE_TTL_MS`), not the usual 4 hours. An approval
+  answers someone sitting on the page right now; an invite reaches someone who
+  may open it tomorrow, and a window that expires before they read it is worse
+  than not sending one.
+
+It needs the email channel configured. Optional vars: `INVITE_URL` (where to
+send them, default `ALLOWED_ORIGIN` + `/projects`) and `INVITE_SIGNATURE` (the
+name it signs off with).
+
+## When notifications stop
+
+The likeliest cause is the phone: a wiped or reinstalled handset is
+de-registered from Pushover, even though your user key never changes. Signing
+back in on the phone is the whole fix - nothing server-side needs updating.
+(Signing *up* again rather than in gives you a new user key, which does need
+copying into `PUSHOVER_USER`.)
+
+1. Open `/admin?key=<ADMIN_KEY>`. The banner says whether the last notification
+   was delivered and by which channel, and prints the failure verbatim if not.
+   Anything waiting is still listed with Approve/Deny, so nobody is stuck.
+2. Hit **Test both channels** from the phone. Each is reported separately - the
+   fallback working is not evidence that your phone does.
+3. Fix per the error:
+   - *Pushover failed, email worked* (amber banner) -> the phone. Re-install /
+     sign back in, and check the device at pushover.net.
+   - *not a valid user/group key* -> the account behind `PUSHOVER_USER` was
+     re-created. Copy the current key from pushover.net into that secret.
+   - *no active devices* -> account is right, no handset registered.
+   - *application token is invalid* -> same, for `PUSHOVER_TOKEN`.
+   - *Resend 403 / domain not verified* -> `NOTIFY_EMAIL_FROM` is not a verified
+     sender on your Resend domain.
+   - *could not reach ...* -> transient; re-test.
+4. Re-test until the banner is green. A passing test counts as evidence and
+   turns the banner green, labelled "last test" rather than "last one", so you
+   never have to wait for a stranger to prove the channel works. `/health` lists
+   `notifyChannels`, which only says what is configured, not that it works.
+
+Changing a secret takes effect immediately; no redeploy is needed.
+
+**The admin page is the real backstop.** Notifications are a convenience, not
+the system of record - every request is in D1 whether or not anything was
+delivered, which is why a dead phone can never lose one.
+
+## History: the September 2026 outage
+
+Worth reading before redesigning any of this. The options below have been
+costed already, and the failure was not where it looked.
+
+### What happened
+
+The owner reset their phone. Pushover on the new handset was not re-registered,
+so notifications stopped. Nothing anywhere said so.
+
+The cause was not Pushover. `sendPushover` did `await fetch(...)` and discarded
+the response. Pushover *was* returning a 4xx naming the problem on every single
+request; the Worker binned it, stored the request, told the visitor "pending",
+and went quiet. A dead notification channel and a week with no visitors looked
+identical from the outside.
+
+It ran like that for about a month. Four people asked for access in that time —
+one of them four times — and none of them ever heard back. That is the real cost
+of a silent failure, and it is why so much of this file is about making failure
+loud rather than about delivery itself.
+
+### What was changed
+
+1. **Read the response.** Every sender returns `{ok, detail}` with the
+   provider's own error text kept verbatim, and never throws.
+2. **Record it.** `requests.notified_at` / `notified_via` / `notify_error` per
+   request, plus a one-row `notify_status` table holding the last attempt from
+   any source.
+3. **Show it.** A red / amber / green banner at the top of `/admin`, and
+   `/admin/notify-test` to prove both channels on demand rather than waiting for
+   a stranger to trip them.
+4. **Add a second channel.** Email via Resend, behind Pushover, wired so it
+   cannot mask a Pushover failure.
+5. **Recover the damage.** `/admin/invite` to apologise to and grant access to
+   the people whose requests never arrived.
+
+### Options tried and rejected
+
+- **ntfy (free tier)** — adopted, deployed, reverted within the day. Its free
+  tier meters 250 messages/day **per IP**, and a Worker has no IP of its own:
+  outbound requests share Cloudflare's pool with every other customer's Worker.
+  It returned `429 daily message quota reached` on the second message ever sent,
+  because strangers had already spent the day's allowance. Unfixable from here.
+  A paid ntfy plan (from $5/mo) meters per account and would work.
+- **Telegram bot** — free, no IP metering, account-bound so a phone reset cannot
+  break it, and inline buttons give the same tap-to-approve. The strongest free
+  alternative if Pushover is ever abandoned. Not adopted only because Pushover
+  was already paid for and gives 10,000 messages/month free.
+- **Web Push / PWA** — rejected. A subscription is bound to one browser install
+  on one device, so a phone reset kills it permanently. That is precisely the
+  failure being fixed.
+- **Building a Pushover equivalent** — costed and rejected. Push on iOS requires
+  the Apple Developer Program at $99/year (the free tier explicitly excludes the
+  push entitlement), plus an app, certificates, App Store review, and permanent
+  maintenance — roughly $1,000 a decade and a week of work to replace a $4.99
+  purchase already made, for about four messages a month.
+
+### The lesson worth keeping
+
+Pushover never failed at anything. The system failed because it did not listen
+to what Pushover told it. Before adding redundancy to a channel, check that
+failures on the channel you already have are actually visible — and prefer a
+provider whose limits are tied to your account rather than to an address you
+share with strangers.
 
 ## Operational notes
 
@@ -98,6 +251,17 @@ Two things to know:
   in SQL against the `requests` table. Tune the constants in `src/index.js`.
 - **Housekeeping** is piggybacked onto approve/deny: rows older than 7 days are
   deleted, so no cron job is needed.
+- **Delivery state lives in `notify_status`** (one row), written by real
+  notifications and by the test button alike. That is why a green test is
+  believed: a banner that said "not verified" straight after a passing test
+  would only teach you to ignore it.
+- **A failed notification never fails the request.** Every sender returns
+  `{ok, detail}` rather than throwing its result away, and the caller records it
+  on the request row (`notified_at` / `notified_via` / `notify_error`). Do not go
+  back to ignoring those responses: they are the only evidence the channels
+  work, and without them a broken phone looks exactly like a quiet week. That is
+  precisely how this broke once already.
 - **Tests**: the handler logic is covered end to end against real SQLite via
   `node:sqlite`, including the CORS-preflight regression that once broke the
-  whole flow. Re-run those before changing this file.
+  whole flow, and the dead-push-channel cases. Run them with
+  `node worker/test/worker.test.mjs` before changing this file.
