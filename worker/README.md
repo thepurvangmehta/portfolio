@@ -174,6 +174,71 @@ Changing a secret takes effect immediately; no redeploy is needed.
 the system of record - every request is in D1 whether or not anything was
 delivered, which is why a dead phone can never lose one.
 
+## History: the September 2026 outage
+
+Worth reading before redesigning any of this. The options below have been
+costed already, and the failure was not where it looked.
+
+### What happened
+
+The owner reset their phone. Pushover on the new handset was not re-registered,
+so notifications stopped. Nothing anywhere said so.
+
+The cause was not Pushover. `sendPushover` did `await fetch(...)` and discarded
+the response. Pushover *was* returning a 4xx naming the problem on every single
+request; the Worker binned it, stored the request, told the visitor "pending",
+and went quiet. A dead notification channel and a week with no visitors looked
+identical from the outside.
+
+It ran like that for about a month. Four people asked for access in that time —
+one of them four times — and none of them ever heard back. That is the real cost
+of a silent failure, and it is why so much of this file is about making failure
+loud rather than about delivery itself.
+
+### What was changed
+
+1. **Read the response.** Every sender returns `{ok, detail}` with the
+   provider's own error text kept verbatim, and never throws.
+2. **Record it.** `requests.notified_at` / `notified_via` / `notify_error` per
+   request, plus a one-row `notify_status` table holding the last attempt from
+   any source.
+3. **Show it.** A red / amber / green banner at the top of `/admin`, and
+   `/admin/notify-test` to prove both channels on demand rather than waiting for
+   a stranger to trip them.
+4. **Add a second channel.** Email via Resend, behind Pushover, wired so it
+   cannot mask a Pushover failure.
+5. **Recover the damage.** `/admin/invite` to apologise to and grant access to
+   the people whose requests never arrived.
+
+### Options tried and rejected
+
+- **ntfy (free tier)** — adopted, deployed, reverted within the day. Its free
+  tier meters 250 messages/day **per IP**, and a Worker has no IP of its own:
+  outbound requests share Cloudflare's pool with every other customer's Worker.
+  It returned `429 daily message quota reached` on the second message ever sent,
+  because strangers had already spent the day's allowance. Unfixable from here.
+  A paid ntfy plan (from $5/mo) meters per account and would work.
+- **Telegram bot** — free, no IP metering, account-bound so a phone reset cannot
+  break it, and inline buttons give the same tap-to-approve. The strongest free
+  alternative if Pushover is ever abandoned. Not adopted only because Pushover
+  was already paid for and gives 10,000 messages/month free.
+- **Web Push / PWA** — rejected. A subscription is bound to one browser install
+  on one device, so a phone reset kills it permanently. That is precisely the
+  failure being fixed.
+- **Building a Pushover equivalent** — costed and rejected. Push on iOS requires
+  the Apple Developer Program at $99/year (the free tier explicitly excludes the
+  push entitlement), plus an app, certificates, App Store review, and permanent
+  maintenance — roughly $1,000 a decade and a week of work to replace a $4.99
+  purchase already made, for about four messages a month.
+
+### The lesson worth keeping
+
+Pushover never failed at anything. The system failed because it did not listen
+to what Pushover told it. Before adding redundancy to a channel, check that
+failures on the channel you already have are actually visible — and prefer a
+provider whose limits are tied to your account rather than to an address you
+share with strangers.
+
 ## Operational notes
 
 - **An approval is global but time-limited**: it opens every gated case study
